@@ -1,13 +1,11 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.2.2**
+Version **1.2.3**
 
-## Virenschutz in der normalen Oberfläche
+## Virenschutz (nur Admin)
 
-Nach dem Login erscheint in der **Navigationsleiste** der Punkt **Virenschutz** (Schild-Symbol) – neben Dashboard, Jobs, Log usw.
+In der oberen Leiste erscheint **Virenschutz** (Schild) **nur wenn** in der Navbar **Benutzer** sichtbar ist (Admin).
 
-Dort siehst du Status, Erkennungen, Quarantäne, Import-Ordner, Scan-Log und kannst einen Scan starten.
+Eingefügt direkt nach **Protokoll**.
 
-## Build
-
-Add-on auf **1.2.2 neu bauen** (nicht nur neu starten).
+Add-on auf **1.2.3 neu bauen**, Seite hart neu laden (Strg+F5).

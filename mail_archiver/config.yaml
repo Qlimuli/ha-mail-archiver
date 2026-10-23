@@ -1,8 +1,8 @@
 name: "Mail Archiver"
-version: "1.2.2"
+version: "1.2.3"
 slug: mail_archiver
 description: >-
-  Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz in der normalen Oberfläche.
+  Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz (Menüpunkt nur für Admins).
 url: "https://github.com/Qlimuli/ha-mail-archiver"
 arch:
   - aarch64

@@ -20,11 +20,16 @@ http {
         ""      "";
     }
 
+    # Script: Virenschutz-Menü nur für Admins (Navbar enthält "Benutzer")
+    # eingefügt vor </body> auf allen App-Seiten
+    map $host $ha_sec_inject {
+        default '<script id="ha-sec-inject">(function(){function go(){try{if(document.getElementById("ha-sec-nav"))return;var nav=document.querySelector("nav")||document.querySelector("header");if(!nav)return;if(!/Benutzer|Users/i.test(nav.textContent||""))return;var anchors=[].slice.call(nav.querySelectorAll("a"));var proto=null;for(var i=0;i<anchors.length;i++){var t=(anchors[i].textContent||"").replace(/\s+/g," ").trim();if(/Protokoll|Logs?/i.test(t)){proto=anchors[i];break;}}var a=document.createElement("a");a.id="ha-sec-nav";a.href="security/";a.innerHTML="<i class=\"bi bi-shield-check me-1\"></i>Virenschutz";if(proto){a.className=proto.className||"nav-link";var p=proto.parentElement;if(p&&p.tagName==="LI"){var li=document.createElement("li");li.className=p.className||"nav-item";li.appendChild(a);p.parentElement.insertBefore(li,p.nextSibling);}else{proto.parentElement.insertBefore(a,proto.nextSibling);}}else{var ul=nav.querySelector("ul");a.className="nav-link";if(ul){var li2=document.createElement("li");li2.className="nav-item";li2.appendChild(a);ul.appendChild(li2);}else{nav.appendChild(a);}}}catch(e){}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",go);else go();})();</script>';
+    }
+
     server {
         listen 5000 default_server;
         server_name _;
 
-        # Virenschutz – Teil der normalen Oberfläche
         location /security/ {
             proxy_pass http://127.0.0.1:5002/;
             proxy_http_version 1.1;
@@ -69,7 +74,7 @@ http {
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
             proxy_cookie_path / $ingress_prefix/;
             sub_filter_once off;
-            sub_filter_types text/css application/javascript application/json;
+            sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
             sub_filter 'href="/' 'href="$ingress_prefix/';
             sub_filter "href='/'" "href='$ingress_prefix/";
@@ -80,8 +85,8 @@ http {
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
-            # Menüpunkt "Virenschutz" in die normale Navbar einfügen
-            sub_filter '</body>' '<script>(function(){try{if(document.getElementById("ha-sec-nav"))return;var ul=document.querySelector("ul.navbar-nav");if(!ul)return;var li=document.createElement("li");li.className="nav-item";li.id="ha-sec-nav";var a=document.createElement("a");a.className="nav-link";a.href="security/";a.innerHTML="<i class=\"bi bi-shield-check me-1\"></i>Virenschutz";li.appendChild(a);ul.appendChild(li);}catch(e){}})();</script></body>';
+            sub_filter '</body>' '$ha_sec_inject</body>';
+            sub_filter '</BODY>' '$ha_sec_inject</BODY>';
         }
 
         location / {
@@ -110,7 +115,7 @@ http {
             proxy_cookie_path / $ingress_prefix/;
 
             sub_filter_once off;
-            sub_filter_types text/css application/javascript application/json;
+            sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
             sub_filter 'href="/' 'href="$ingress_prefix/';
             sub_filter "href='/'" "href='$ingress_prefix/";
@@ -121,7 +126,8 @@ http {
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
-            sub_filter '</body>' '<script>(function(){try{if(document.getElementById("ha-sec-nav"))return;var ul=document.querySelector("ul.navbar-nav");if(!ul)return;var li=document.createElement("li");li.className="nav-item";li.id="ha-sec-nav";var a=document.createElement("a");a.className="nav-link";a.href="security/";a.innerHTML="<i class=\"bi bi-shield-check me-1\"></i>Virenschutz";li.appendChild(a);ul.appendChild(li);}catch(e){}})();</script></body>';
+            sub_filter '</body>' '$ha_sec_inject</body>';
+            sub_filter '</BODY>' '$ha_sec_inject</BODY>';
         }
     }
 }
