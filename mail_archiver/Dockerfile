@@ -4,16 +4,13 @@ LABEL \
     io.hass.name="Mail Archiver" \
     io.hass.description="Lokales E-Mail-Archiv mit Weboberfläche für Home Assistant" \
     io.hass.type="addon" \
-    io.hass.version="1.1.4" \
+    io.hass.version="1.1.5" \
     maintainer="Home Assistant Community"
 
 USER root
 
-# Prevent apt from trying to start services during install
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
 
-# nginx (includes ngx_http_sub_module for path rewriting under HA Ingress)
-# postgresql for embedded DB; jq for options.json
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
