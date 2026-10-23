@@ -1,0 +1,253 @@
+/*! ha-mail-archiver UI inject: Sicherheit-Navbar + EML-Upload-Progress */
+(function () {
+  function go() {
+    try {
+      if (document.getElementById("ha-sec-nav")) return true;
+      var nav = document.querySelector("nav.navbar") || document.querySelector("nav") || document.querySelector("header");
+      if (!nav) return false;
+      if (!/Benutzer|Users/i.test(nav.textContent || "")) return false;
+      var ul = nav.querySelector("ul.navbar-nav") || nav.querySelector("ul");
+      if (!ul) return false;
+      var anchors = [].slice.call(nav.querySelectorAll("a.nav-link,a"));
+      var proto = null;
+      for (var i = 0; i < anchors.length; i++) {
+        var t = (anchors[i].textContent || "").replace(/\s+/g, " ").trim();
+        if (/Protokoll|\bLog\b|Logs/i.test(t)) {
+          proto = anchors[i];
+          break;
+        }
+      }
+      var a = document.createElement("a");
+      a.id = "ha-sec-nav";
+      a.className =
+        proto && proto.className
+          ? proto.className.replace(/\bactive\b/g, "").trim() || "nav-link"
+          : "nav-link";
+      if (a.className.indexOf("nav-link") < 0) a.className += " nav-link";
+      a.href = "security/";
+      a.title = "Sicherheit (Admin)";
+      a.innerHTML = '<i class="bi bi-shield-check me-1"></i>Sicherheit';
+      var li = document.createElement("li");
+      li.className = "nav-item";
+      li.appendChild(a);
+      if (proto) {
+        var p = proto.parentElement;
+        if (p && p.tagName === "LI") p.parentElement.insertBefore(li, p.nextSibling);
+        else proto.parentElement.insertBefore(a, proto.nextSibling);
+      } else {
+        ul.appendChild(li);
+      }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function start() {
+    if (go()) return;
+    var n = 0;
+    var t = setInterval(function () {
+      if (go() || ++n > 40) clearInterval(t);
+    }, 250);
+    try {
+      var mo = new MutationObserver(function () {
+        if (go()) mo.disconnect();
+      });
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(function () {
+        try {
+          mo.disconnect();
+        } catch (e) {}
+      }, 15000);
+    } catch (e) {}
+  }
+
+  function fmtSize(b) {
+    if (!b || b <= 0) return "0 B";
+    var k = 1024,
+      s = ["B", "KB", "MB", "GB"],
+      i = Math.floor(Math.log(b) / Math.log(k));
+    return Math.round((b / Math.pow(k, i)) * 100) / 100 + " " + s[i];
+  }
+
+  function ensureProgress(btn) {
+    var box = document.getElementById("ha-eml-progress");
+    if (box) return box;
+    box = document.createElement("div");
+    box.id = "ha-eml-progress";
+    box.style.cssText = "display:none;margin-top:.75rem;max-width:480px";
+    box.innerHTML =
+      '<div class="d-flex justify-content-between small mb-1">' +
+      '<span id="ha-eml-prog-label">Upload</span>' +
+      '<span id="ha-eml-prog-pct">0%</span></div>' +
+      '<div class="progress" style="height:1.25rem">' +
+      '<div id="ha-eml-prog-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" ' +
+      'role="progressbar" style="width:0%">0%</div></div>' +
+      '<div id="ha-eml-prog-detail" class="small text-muted mt-1"></div>';
+    if (btn && btn.parentNode) btn.parentNode.insertBefore(box, btn.nextSibling);
+    else document.body.appendChild(box);
+    return box;
+  }
+
+  function setProg(pct, label, detail) {
+    var box = document.getElementById("ha-eml-progress");
+    if (!box) return;
+    box.style.display = "block";
+    pct = Math.max(0, Math.min(100, Math.round(pct)));
+    var bar = document.getElementById("ha-eml-prog-bar");
+    var pctEl = document.getElementById("ha-eml-prog-pct");
+    var lab = document.getElementById("ha-eml-prog-label");
+    var det = document.getElementById("ha-eml-prog-detail");
+    if (bar) {
+      bar.style.width = pct + "%";
+      bar.textContent = pct + "%";
+    }
+    if (pctEl) pctEl.textContent = pct + "%";
+    if (lab && label) lab.textContent = label;
+    if (det && detail != null) det.textContent = detail;
+  }
+
+  function fixEml() {
+    try {
+      var input = document.getElementById("emlFileInput");
+      if (!input) return;
+      var form = document.getElementById("emlImportForm");
+      var btn = document.getElementById("submitBtn");
+      if (!form || !btn) return;
+      if (!document.getElementById("ha-eml-upload-btn")) {
+        var wrap = document.createElement("div");
+        wrap.className = "mb-2 d-flex align-items-center gap-2 flex-wrap";
+        var uBtn = document.createElement("button");
+        uBtn.type = "button";
+        uBtn.id = "ha-eml-upload-btn";
+        uBtn.className = "btn btn-outline-primary";
+        uBtn.innerHTML = '<i class="bi bi-folder2-open me-1"></i>Datei w\u00e4hlen (ZIP mit EMLs)';
+        uBtn.onclick = function () {
+          input.click();
+        };
+        var nameSpan = document.createElement("span");
+        nameSpan.id = "ha-eml-filename";
+        nameSpan.className = "text-muted small";
+        nameSpan.style.display = "none";
+        input.style.position = "absolute";
+        input.style.width = "1px";
+        input.style.height = "1px";
+        input.style.opacity = "0";
+        input.style.overflow = "hidden";
+        input.parentNode.insertBefore(wrap, input);
+        wrap.appendChild(uBtn);
+        wrap.appendChild(nameSpan);
+        wrap.appendChild(input);
+      }
+      ensureProgress(btn);
+      function update() {
+        var hasFile = input.files && input.files.length > 0;
+        var sel = document.getElementById("accountSelect");
+        var hasAcc = sel && sel.value;
+        btn.disabled = !(hasFile && hasAcc);
+        var ns = document.getElementById("ha-eml-filename");
+        if (ns) {
+          if (hasFile) {
+            ns.textContent = input.files[0].name + " (" + fmtSize(input.files[0].size) + ")";
+            ns.style.display = "inline";
+          } else ns.style.display = "none";
+        }
+      }
+      if (!input._haBound) {
+        input._haBound = true;
+        input.addEventListener("change", update);
+        var sel = document.getElementById("accountSelect");
+        if (sel) sel.addEventListener("change", update);
+      }
+      update();
+      if (form._haXhrBound) return;
+      form._haXhrBound = true;
+      form.addEventListener(
+        "submit",
+        function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (!input.files || !input.files.length) return;
+          var file = input.files[0];
+          var fd = new FormData(form);
+          var xhr = new XMLHttpRequest();
+          btn.disabled = true;
+          var origHtml = btn.innerHTML;
+          btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload\u2026';
+          setProg(0, "Upload startet\u2026", file.name + " (" + fmtSize(file.size) + ")");
+          xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) {
+              var pct = e.total ? (e.loaded / e.total) * 100 : 0;
+              setProg(pct, "Hochladen\u2026", fmtSize(e.loaded) + " / " + fmtSize(e.total));
+              btn.innerHTML =
+                '<i class="bi bi-cloud-upload me-2"></i>Upload ' + Math.round(pct) + "%";
+            } else {
+              setProg(50, "Hochladen\u2026", fmtSize(e.loaded) + " gesendet");
+            }
+          };
+          xhr.upload.onload = function () {
+            setProg(100, "Upload fertig \u2013 Server verarbeitet\u2026", "Datei vollst\u00e4ndig \u00fcbertragen");
+            btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Verarbeiten\u2026';
+            var bar = document.getElementById("ha-eml-prog-bar");
+            if (bar) bar.classList.add("bg-success");
+          };
+          xhr.onerror = function () {
+            setProg(0, "Upload fehlgeschlagen", "Netzwerkfehler");
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+            var bar = document.getElementById("ha-eml-prog-bar");
+            if (bar) {
+              bar.classList.remove("bg-success");
+              bar.classList.add("bg-danger");
+            }
+          };
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 400) {
+              setProg(100, "Fertig", "Antwort vom Server wird geladen\u2026");
+              var loc = xhr.getResponseHeader("Location");
+              if (loc) {
+                window.location.href = loc;
+                return;
+              }
+              var ct = xhr.getResponseHeader("Content-Type") || "";
+              if (ct.indexOf("text/html") >= 0 && xhr.responseText) {
+                document.open();
+                document.write(xhr.responseText);
+                document.close();
+                return;
+              }
+              window.location.reload();
+            } else {
+              setProg(0, "Fehler HTTP " + xhr.status, (xhr.responseText || "").slice(0, 200));
+              btn.disabled = false;
+              btn.innerHTML = origHtml;
+              var bar = document.getElementById("ha-eml-prog-bar");
+              if (bar) {
+                bar.classList.remove("bg-success");
+                bar.classList.add("bg-danger");
+              }
+            }
+          };
+          var action = form.getAttribute("action") || window.location.href;
+          var method = (form.getAttribute("method") || "POST").toUpperCase();
+          xhr.open(method, action, true);
+          xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+          try {
+            xhr.withCredentials = true;
+          } catch (e) {}
+          xhr.send(fd);
+        },
+        true
+      );
+    } catch (e) {}
+  }
+
+  function startAll() {
+    start();
+    fixEml();
+    setTimeout(fixEml, 800);
+    setTimeout(fixEml, 2500);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startAll);
+  else startAll();
+})();
