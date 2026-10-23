@@ -4,7 +4,7 @@ LABEL \
     io.hass.name="Mail Archiver" \
     io.hass.description="Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz" \
     io.hass.type="addon" \
-    io.hass.version="1.2.5" \
+    io.hass.version="1.2.6" \
     maintainer="Home Assistant Community"
 
 USER root
