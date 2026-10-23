@@ -4,7 +4,7 @@ LABEL \
     io.hass.name="Mail Archiver" \
     io.hass.description="Lokales E-Mail-Archiv mit Weboberfläche für Home Assistant" \
     io.hass.type="addon" \
-    io.hass.version="1.1.1" \
+    io.hass.version="1.1.2" \
     maintainer="Home Assistant Community"
 
 USER root

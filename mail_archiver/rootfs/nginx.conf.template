@@ -25,25 +25,32 @@ http {
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
             proxy_set_header X-Forwarded-Host $http_x_forwarded_host;
+            proxy_set_header Accept-Encoding "";
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
             proxy_buffering off;
             proxy_read_timeout 3600s;
 
-            # X-Ingress-Path is /api/hassio_ingress/<token> or empty for direct :5000
             proxy_redirect ~^https?://[^/]+(/.*) $http_x_ingress_path$1;
             proxy_redirect ~^(/.*) $http_x_ingress_path$1;
 
-            subs_filter_once off;
-            subs_filter 'href="/' 'href="$http_x_ingress_path/' gi;
-            subs_filter 'src="/' 'src="$http_x_ingress_path/' gi;
-            subs_filter 'action="/' 'action="$http_x_ingress_path/' gi;
-            subs_filter "href='/" "href='$http_x_ingress_path/" gi;
-            subs_filter "src='/" "src='$http_x_ingress_path/" gi;
-            subs_filter 'fetch("/' 'fetch("$http_x_ingress_path/' gi;
-            subs_filter "fetch('/" "fetch('$http_x_ingress_path/" gi;
-            subs_filter 'url("/' 'url("$http_x_ingress_path/' gi;
-            subs_filter "url('/" "url('$http_x_ingress_path/" gi;
+            header_filter_by_lua_block {
+                ngx.header.content_length = nil
+            }
+            body_filter_by_lua_block {
+                local prefix = ngx.var.http_x_ingress_path
+                local data = ngx.arg[1]
+                if prefix and prefix ~= "" and data and data ~= "" then
+                    data = data:gsub('href="/', 'href="' .. prefix .. '/')
+                    data = data:gsub("href='/", "href='" .. prefix .. "/")
+                    data = data:gsub('src="/', 'src="' .. prefix .. '/')
+                    data = data:gsub("src='/", "src='" .. prefix .. "/")
+                    data = data:gsub('action="/', 'action="' .. prefix .. '/')
+                    data = data:gsub('fetch%("/", 'fetch("' .. prefix .. '/')
+                    data = data:gsub("fetch%('/", "fetch('" .. prefix .. "/")
+                    ngx.arg[1] = data
+                end
+            }
         }
     }
 }
