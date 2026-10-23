@@ -1,20 +1,15 @@
 #!/bin/bash
-# Home Assistant add-on wrapper for Mail-Archiver.
-# The upstream image entrypoint ignores addon options and always uses Host=postgres.
 set -euo pipefail
 
 log() { echo "[mail-archiver] $*"; }
 
 OPTIONS=/data/options.json
 if [ ! -f "$OPTIONS" ]; then
-  log "Keine /data/options.json, nutze Standardwerte."
   echo '{}' > /tmp/options.json
   OPTIONS=/tmp/options.json
 fi
 
-cfg() {
-  jq -r "$1" "$OPTIONS"
-}
+cfg() { jq -r "$1" "$OPTIONS"; }
 
 ADMIN_USER="$(cfg '.admin_username // "admin"')"
 ADMIN_PASS="$(cfg '.admin_password // "changeme"')"
@@ -47,9 +42,10 @@ start_embedded_postgres() {
     echo "unix_socket_directories = '/tmp'" >> "${pgdata}/postgresql.conf"
   fi
   chown -R postgres:postgres "$pgdata"
+  chmod 700 "$pgdata"
   if ! su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} status" >/dev/null 2>&1; then
     log "Starte PostgreSQL"
-    su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l /data/pg.log -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"
+    su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l ${pgdata}/postgres.log -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"
   fi
   local i
   for i in $(seq 1 30); do
@@ -77,13 +73,13 @@ SQL
 }
 
 if [ "$USE_EXT" = "true" ]; then
-  DB_HOST="$(cfg '.db_host // "core-postgresql"')"
+  DB_HOST="$(cfg '.db_host // ""')"
   DB_PORT="$(cfg '.db_port // "5432"')"
   DB_NAME="$(cfg '.db_name // "MailArchiver"')"
   DB_USER="$(cfg '.db_user // "mailuser"')"
   DB_PASS="$(cfg '.db_password // ""')"
   if [ "$DB_HOST" = "null" ] || [ -z "$DB_HOST" ] || [ "$DB_HOST" = "postgres" ]; then
-    log "db_host '${DB_HOST}' ist in Home Assistant nicht auflösbar. Falle auf lokale Datenbank zurück."
+    log "db_host nicht nutzbar, lokale Datenbank"
     start_embedded_postgres
   else
     log "Externe Datenbank ${DB_USER}@${DB_HOST}:${DB_PORT}/${DB_NAME}"
@@ -124,7 +120,5 @@ log "App intern auf 127.0.0.1:5001, Ingress auf Port 5000"
 log "Login: ${ADMIN_USER}"
 
 nginx -c /tmp/nginx.conf -g 'daemon off;' &
-NGINX_PID=$!
-
 cd /app
 exec dotnet MailArchiver.dll

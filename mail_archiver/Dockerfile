@@ -4,12 +4,11 @@ LABEL \
     io.hass.name="Mail Archiver" \
     io.hass.description="Lokales E-Mail-Archiv mit Weboberfläche für Home Assistant" \
     io.hass.type="addon" \
-    io.hass.version="1.1.0" \
+    io.hass.version="1.1.1" \
     maintainer="Home Assistant Community"
 
 USER root
 
-# Do not start services during image build
 RUN printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d && chmod +x /usr/sbin/policy-rc.d
 
 RUN apt-get update \
@@ -27,5 +26,4 @@ COPY rootfs/run.sh /run.sh
 COPY rootfs/nginx.conf.template /nginx.conf.template
 RUN chmod a+x /run.sh
 
-# Replace the upstream entrypoint (dotnet MailArchiver.dll). CMD alone is ignored.
 ENTRYPOINT ["/bin/bash", "/run.sh"]

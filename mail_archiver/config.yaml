@@ -1,5 +1,5 @@
 name: "Mail Archiver"
-version: "1.1.0"
+version: "1.1.1"
 slug: mail_archiver
 description: >-
   Lokales E-Mail-Archiv mit Weboberfläche.
