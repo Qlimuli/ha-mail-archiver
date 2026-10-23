@@ -1,9 +1,8 @@
 name: "Mail Archiver"
-version: "1.2.0"
+version: "1.2.1"
 slug: mail_archiver
 description: >-
-  Lokales E-Mail-Archiv mit Weboberfläche und optionalem ClamAV-Virenscan.
-  Speichert Mails von Gmail, GMX und anderen IMAP-Konten im Add-on.
+  Lokales E-Mail-Archiv mit Weboberfläche, ClamAV-Virenscan und Security-Dashboard.
 url: "https://github.com/Qlimuli/ha-mail-archiver"
 arch:
   - aarch64
@@ -30,7 +29,6 @@ options:
   db_name: MailArchiver
   db_user: mailuser
   db_password: ""
-  # --- Sicherheit ---
   security_virus_scan: true
   security_quarantine: true
   security_update_signatures_on_start: true

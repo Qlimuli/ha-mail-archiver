@@ -135,12 +135,15 @@ if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
 fi
 ln -sfn /data/keys /app/DataProtection-Keys
 
-# --- Sicherheit (ClamAV) ---
 if [ -x /security.sh ]; then
   log "Starte Sicherheitsmodul…"
   /security.sh start || log "WARNUNG: Sicherheitsstart mit Fehlern"
-  # Periodischer Hintergrund-Scan
   /security.sh loop &
+fi
+
+if [ -f /security_ui.py ]; then
+  log "Starte Security-Dashboard auf :5002 (/security/)"
+  python3 /security_ui.py &
 fi
 
 cp /nginx.conf.template /tmp/nginx.conf
@@ -152,8 +155,8 @@ fi
 
 log "App intern auf 127.0.0.1:5001, Ingress auf Port 5000"
 log "Login: ${ADMIN_USER}"
-log "Virenscan: ${VIRUS_SCAN} | Quarantäne: /data/quarantine | Import-Drop: /data/import"
-log "Direkt (ohne Ingress): http://<ha-ip>:5000"
+log "Virenscan: ${VIRUS_SCAN} | Dashboard: /security/ | Quarantäne: /data/quarantine"
+log "Direkt: http://<ha-ip>:5000  und  http://<ha-ip>:5000/security/"
 
 nginx -c /tmp/nginx.conf -g 'daemon off;' &
 

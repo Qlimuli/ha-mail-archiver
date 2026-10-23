@@ -1,34 +1,27 @@
 # Home Assistant Add-on: Mail Archiver
 
-Lokales E-Mail-Archiv (Gmail, GMX, IMAP) in der Sidebar – mit optionalem **ClamAV-Virenscan** und Quarantäne.
+Version **1.2.1** – Archiv + ClamAV + **Security-Dashboard**.
 
-Repository: `https://github.com/Qlimuli/ha-mail-archiver`  
-Version: **1.2.0**
+## Virenschutz-GUI
 
-## Sicherheit (Standard: an)
+Nach dem Start öffnen:
 
-In den Add-on-Optionen:
+- Direkt: `http://<ha-ip>:5000/security/`
+- Per Ingress: `…/security/` an die Ingress-URL anhängen
 
-- **security_virus_scan** – ClamAV an/aus  
-- **security_quarantine** – Treffer nach `/data/quarantine`  
-- **security_block_dangerous_extensions** – `.exe`, `.js`, `.bat`, … blockieren  
-- **security_scan_interval_minutes** – periodischer Scan (0 = aus)
+Dort siehst du:
 
-Import-Dateien möglichst nach `/data/import` legen; der Scanner prüft sie vor/neben dem Betrieb.
+- Status (an/aus, clamd, letzter Scan, Treffer)
+- Ereignisse (Erkennungen, Blocklist, Scans)
+- Quarantäne-Inhalt
+- Import-Ordner
+- Scan-Log
+- Button **Scan jetzt starten**
 
-Details: `mail_archiver/DOCS.md`
+## Optionen
 
-## Quick-Start
+`security_virus_scan`, `security_quarantine`, Intervall, gefährliche Endungen – in den Add-on-Einstellungen.
 
-1. Add-on bauen (1.2.0), starten  
-2. Starkes `admin_password` setzen  
-3. `use_external_db: false`  
-4. Sidebar **Mail** oder Port 5000  
+## Build
 
-## Changelog 1.2.0
-
-- ClamAV + freshclam im Image  
-- Konfigurierbare Security-Optionen  
-- Quarantäne-Ordner `/data/quarantine`  
-- Blocklist gefährlicher Dateiendungen  
-- Scan beim Start + periodisch  
+Add-on **neu bauen** (1.2.1), nicht nur neu starten.

@@ -15,7 +15,6 @@ http {
         ""      close;
     }
 
-    # HA sets X-Ingress-Path e.g. /api/hassio_ingress/<token>
     map $http_x_ingress_path $ingress_prefix {
         default $http_x_ingress_path;
         ""      "";
@@ -25,8 +24,31 @@ http {
         listen 5000 default_server;
         server_name _;
 
-        # If a client hits the mapped host port with the full ingress URL
-        # (Location rewrite resolved against :5000), strip the prefix.
+        # Security dashboard (ClamAV status / quarantine / logs)
+        location /security/ {
+            proxy_pass http://127.0.0.1:5002/;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Ingress-Path $http_x_ingress_path;
+            proxy_read_timeout 120s;
+        }
+        location = /security {
+            return 302 $ingress_prefix/security/;
+        }
+
+        location ~ ^/api/hassio_ingress/[^/]+/security/(?<secrest>.*)$ {
+            proxy_pass http://127.0.0.1:5002/$secrest$is_args$args;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 120s;
+        }
+
         location ~ ^/api/hassio_ingress/[^/]+(?<rest>/.*)$ {
             proxy_pass http://127.0.0.1:5001$rest$is_args$args;
             proxy_http_version 1.1;
@@ -78,16 +100,13 @@ http {
             proxy_buffering on;
             proxy_read_timeout 3600s;
 
-            # Rewrite Location headers so redirects stay under ingress
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
 
-            # Auth cookie must be scoped to the ingress path
             proxy_cookie_path / $ingress_prefix/;
 
-            # HTML/JS path rewrite for absolute URLs from the app
             sub_filter_once off;
             sub_filter_types text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';

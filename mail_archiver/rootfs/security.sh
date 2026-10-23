@@ -1,6 +1,5 @@
 #!/bin/bash
 # ClamAV security helper for ha-mail-archiver
-# shellcheck disable=SC2086
 set -uo pipefail
 
 log() { echo "[mail-archiver:security] $*"; }
@@ -30,6 +29,7 @@ QUAR_DIR=/data/quarantine
 IMPORT_DIR=/data/import
 SCAN_LOG=/data/security/last-scan.log
 STATUS_FILE=/data/security/status.json
+EVENTS_FILE=/data/security/events.jsonl
 mkdir -p "$QUAR_DIR" "$IMPORT_DIR" /data/security /var/run/clamav
 chown -R clamav:clamav /var/run/clamav 2>/dev/null || true
 
@@ -38,6 +38,13 @@ is_true() {
     true|1|yes|on) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+event() {
+  local kind="$1" detail="$2"
+  printf '{"ts":"%s","kind":"%s","detail":%s}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$kind" "$(printf '%s' "$detail" | jq -Rs .)" \
+    >> "$EVENTS_FILE" 2>/dev/null || true
 }
 
 write_status() {
@@ -54,7 +61,6 @@ write_status() {
 EOF
 }
 
-# --- Gefährliche Dateiendungen aus Import-Ordnern entfernen/quarantänen ---
 block_dangerous_files() {
   is_true "$BLOCK_EXT" || return 0
   log "Prüfe auf gefährliche Dateiendungen…"
@@ -75,6 +81,7 @@ block_dangerous_files() {
         e="${e#.}"
         if [[ "$ext" == "$e" ]]; then
           log "BLOCK: gefährliche Endung .$ext → Quarantäne: $f"
+          event "blocked_extension" ".$ext $f"
           mkdir -p "$QUAR_DIR/blocked-extensions"
           mv -f "$f" "$QUAR_DIR/blocked-extensions/" 2>/dev/null || rm -f "$f"
           count=$((count + 1))
@@ -90,11 +97,13 @@ update_signatures() {
   is_true "$VIRUS_SCAN" || return 0
   is_true "$UPDATE_SIG" || return 0
   log "Aktualisiere ClamAV-Signaturen (freshclam)…"
-  # freshclam kann beim ersten Lauf länger dauern
+  event "freshclam_start" "updating signatures"
   if freshclam --quiet 2>/dev/null || freshclam 2>&1 | tail -20; then
     log "Signaturen aktualisiert"
+    event "freshclam_ok" "signatures updated"
   else
-    log "WARNUNG: freshclam fehlgeschlagen (Netzwerk?). Nutze vorhandene Signaturen falls vorhanden."
+    log "WARNUNG: freshclam fehlgeschlagen (Netzwerk?)."
+    event "freshclam_fail" "network or mirror error"
   fi
 }
 
@@ -102,6 +111,7 @@ start_clamd() {
   is_true "$VIRUS_SCAN" || {
     log "Virenscan deaktiviert"
     write_status false false "" 0 "virus scan disabled"
+    event "disabled" "virus scan off in options"
     return 0
   }
 
@@ -111,7 +121,6 @@ start_clamd() {
     return 1
   fi
 
-  # Socket-Verzeichnis
   mkdir -p /var/run/clamav
   chown clamav:clamav /var/run/clamav 2>/dev/null || true
 
@@ -126,9 +135,11 @@ start_clamd() {
   if pgrep -x clamd >/dev/null 2>&1; then
     log "clamd läuft"
     write_status true true "" 0 "clamd running"
+    event "clamd_start" "daemon running"
   else
-    log "clamd nicht gestartet – nutze clamscan (langsamer, aber ok)"
+    log "clamd nicht gestartet – nutze clamscan"
     write_status true false "" 0 "clamscan only"
+    event "clamd_fallback" "using clamscan"
   fi
 }
 
@@ -157,10 +168,13 @@ scan_path() {
   echo "$out" >> "$SCAN_LOG"
   infected=$(echo "$out" | grep -c 'FOUND' || true)
   if [[ "${infected:-0}" -gt 0 ]]; then
-    log "TREFFER: $infected infizierte Datei(en) unter $path → Quarantäne=$QUARANTINE"
-    echo "$out" | grep 'FOUND' | while read -r line; do log "  $line"; done
+    log "TREFFER: $infected infizierte Datei(en) unter $path"
+    echo "$out" | grep 'FOUND' | while read -r line; do
+      log "  $line"
+      event "threat_found" "$line"
+    done
   else
-    log "Scan OK: $path (keine Treffer)"
+    log "Scan OK: $path"
   fi
   echo "$infected"
 }
@@ -168,20 +182,16 @@ scan_path() {
 run_full_scan() {
   is_true "$VIRUS_SCAN" || return 0
   log "Starte Sicherheits-Scan…"
+  event "scan_start" "full scan"
   : > "$SCAN_LOG"
   local total=0
   local n
-  for path in "$IMPORT_DIR" /data/mail-export /tmp/mail-import "$QUAR_DIR"; do
-    # Quarantäne selbst nicht erneut „infizieren“-scannen mit move in sich selbst
-    if [[ "$path" == "$QUAR_DIR" ]]; then
-      continue
-    fi
+  for path in "$IMPORT_DIR" /data/mail-export /tmp/mail-import; do
     [[ -d "$path" ]] || continue
     n=$(scan_path "$path" || echo 0)
     n=$(echo "$n" | tail -1)
     total=$((total + ${n:-0}))
   done
-  # Zusätzlich: lose Dateien direkt unter /data (keine DB/pg)
   if [[ -d /data ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
@@ -196,16 +206,15 @@ run_full_scan() {
   local now
   now=$(date -Iseconds)
   write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$total" "scan completed"
-  log "Scan abgeschlossen. Infiziert/verschoben (Summe): $total"
-  log "Quarantäne-Ordner: $QUAR_DIR"
+  event "scan_end" "infected_moved=$total"
+  log "Scan abgeschlossen. Infiziert/verschoben: $total | Quarantäne: $QUAR_DIR"
 }
 
 background_loop() {
   is_true "$VIRUS_SCAN" || exit 0
   local mins="$SCAN_INTERVAL"
-  # 0 = kein periodischer Scan
   if [[ "$mins" -le 0 ]] 2>/dev/null; then
-    log "Periodischer Scan deaktiviert (Intervall=0)"
+    log "Periodischer Scan deaktiviert"
     exit 0
   fi
   log "Periodischer Scan alle $mins Minuten"
@@ -216,7 +225,6 @@ background_loop() {
   done
 }
 
-# --- CLI ---
 cmd="${1:-start}"
 case "$cmd" in
   start)
