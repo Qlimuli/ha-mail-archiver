@@ -24,7 +24,7 @@ http {
         listen 5000 default_server;
         server_name _;
 
-        # Security dashboard (ClamAV status / quarantine / logs)
+        # Virenschutz – Teil der normalen Oberfläche
         location /security/ {
             proxy_pass http://127.0.0.1:5002/;
             proxy_http_version 1.1;
@@ -80,6 +80,8 @@ http {
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
+            # Menüpunkt "Virenschutz" in die normale Navbar einfügen
+            sub_filter '</body>' '<script>(function(){try{if(document.getElementById("ha-sec-nav"))return;var ul=document.querySelector("ul.navbar-nav");if(!ul)return;var li=document.createElement("li");li.className="nav-item";li.id="ha-sec-nav";var a=document.createElement("a");a.className="nav-link";a.href="security/";a.innerHTML="<i class=\"bi bi-shield-check me-1\"></i>Virenschutz";li.appendChild(a);ul.appendChild(li);}catch(e){}})();</script></body>';
         }
 
         location / {
@@ -119,6 +121,7 @@ http {
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
+            sub_filter '</body>' '<script>(function(){try{if(document.getElementById("ha-sec-nav"))return;var ul=document.querySelector("ul.navbar-nav");if(!ul)return;var li=document.createElement("li");li.className="nav-item";li.id="ha-sec-nav";var a=document.createElement("a");a.className="nav-link";a.href="security/";a.innerHTML="<i class=\"bi bi-shield-check me-1\"></i>Virenschutz";li.appendChild(a);ul.appendChild(li);}catch(e){}})();</script></body>';
         }
     }
 }

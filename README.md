@@ -1,27 +1,13 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.2.1** – Archiv + ClamAV + **Security-Dashboard**.
+Version **1.2.2**
 
-## Virenschutz-GUI
+## Virenschutz in der normalen Oberfläche
 
-Nach dem Start öffnen:
+Nach dem Login erscheint in der **Navigationsleiste** der Punkt **Virenschutz** (Schild-Symbol) – neben Dashboard, Jobs, Log usw.
 
-- Direkt: `http://<ha-ip>:5000/security/`
-- Per Ingress: `…/security/` an die Ingress-URL anhängen
-
-Dort siehst du:
-
-- Status (an/aus, clamd, letzter Scan, Treffer)
-- Ereignisse (Erkennungen, Blocklist, Scans)
-- Quarantäne-Inhalt
-- Import-Ordner
-- Scan-Log
-- Button **Scan jetzt starten**
-
-## Optionen
-
-`security_virus_scan`, `security_quarantine`, Intervall, gefährliche Endungen – in den Add-on-Einstellungen.
+Dort siehst du Status, Erkennungen, Quarantäne, Import-Ordner, Scan-Log und kannst einen Scan starten.
 
 ## Build
 
-Add-on **neu bauen** (1.2.1), nicht nur neu starten.
+Add-on auf **1.2.2 neu bauen** (nicht nur neu starten).
