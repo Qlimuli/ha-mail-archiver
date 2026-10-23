@@ -129,11 +129,20 @@ export ASPNETCORE_ENVIRONMENT=Production
 export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 
-mkdir -p /data/keys /data/import /data/quarantine /data/security
+mkdir -p /data/keys /data/import /data/quarantine /data/security /app/imports
+# LocalImport-Pfad der App + HA-Volume verknüpfen (große EML/ZIP-Uploads zuverlässig)
+ln -sfn /data/import /app/imports 2>/dev/null || true
 if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
   rm -rf /app/DataProtection-Keys
 fi
 ln -sfn /data/keys /app/DataProtection-Keys
+
+# Upload-Limits und LocalImport für große Dateien (bis 10 GB)
+export Upload__MaxFileSizeGB=10
+export Upload__KeepAliveTimeoutHours=4
+export Upload__RequestHeadersTimeoutHours=2
+export LocalImport__AllowedPaths__0=/data/import
+export LocalImport__AllowedPaths__1=/app/imports
 
 if [ -x /security.sh ]; then
   log "Starte Sicherheitsmodul…"
@@ -155,7 +164,7 @@ fi
 
 log "App intern auf 127.0.0.1:5001, Ingress auf Port 5000"
 log "Login: ${ADMIN_USER}"
-log "Virenscan: ${VIRUS_SCAN} | Dashboard: /security/ | Quarantäne: /data/quarantine"
+log "Virenscan: ${VIRUS_SCAN} | Dashboard: /security/ | Quarantäne: /data/quarantine | Import: /data/import"
 log "Direkt: http://<ha-ip>:5000  und  http://<ha-ip>:5000/security/"
 
 nginx -c /tmp/nginx.conf -g 'daemon off;' &
