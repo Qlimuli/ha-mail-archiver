@@ -8,9 +8,9 @@ ADMIN_USER="$(cfg '.admin_username // "admin"')"
 ADMIN_PASS="$(cfg '.admin_password // "changeme"')"
 TIMEZONE="$(cfg '.timezone // "Europe/Berlin"')"
 USE_EXT="$(cfg '.use_external_db // false')"
-[ "$ADMIN_USER" = "null" ] || [ -z "$ADMIN_USER" ] && ADMIN_USER=admin
-[ "$ADMIN_PASS" = "null" ] || [ -z "$ADMIN_PASS" ] && ADMIN_PASS=changeme
-[ "$TIMEZONE" = "null" ] || [ -z "$TIMEZONE" ] && TIMEZONE=Europe/Berlin
+if [ "$ADMIN_USER" = "null" ] || [ -z "$ADMIN_USER" ]; then ADMIN_USER=admin; fi
+if [ "$ADMIN_PASS" = "null" ] || [ -z "$ADMIN_PASS" ]; then ADMIN_PASS=changeme; fi
+if [ "$TIMEZONE" = "null" ] || [ -z "$TIMEZONE" ]; then TIMEZONE=Europe/Berlin; fi
 if [ -f "/usr/share/zoneinfo/${TIMEZONE}" ]; then ln -sfn "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime; echo "$TIMEZONE" > /etc/timezone; fi
 export TZ="$TIMEZONE"
 PG_BIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
@@ -35,7 +35,7 @@ start_embedded_postgres() {
   fi
   local i
   for i in $(seq 1 30); do
-    su -s /bin/bash postgres -c "${PG_BIN}/pg_isready -h 127.0.0.1" >/dev/null 2>&1 && break
+    if su -s /bin/bash postgres -c "${PG_BIN}/pg_isready -h 127.0.0.1" >/dev/null 2>&1; then break; fi
     sleep 1
   done
   su -s /bin/bash postgres -c "${PG_BIN}/psql -h 127.0.0.1 -v ON_ERROR_STOP=1 -d postgres" <<'SQL'
