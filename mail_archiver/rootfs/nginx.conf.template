@@ -9,10 +9,18 @@ events {
 http {
     access_log /dev/stdout;
     client_max_body_size 0;
+
     map $http_upgrade $connection_upgrade {
         default upgrade;
-        '' close;
+        ''      close;
     }
+
+    # Ingress path from Home Assistant (empty when not behind ingress)
+    map $http_x_ingress_path $ingress_prefix {
+        default $http_x_ingress_path;
+        ''      '';
+    }
+
     server {
         listen 5000 default_server;
         server_name _;
@@ -20,6 +28,7 @@ http {
         location / {
             proxy_pass http://127.0.0.1:5001;
             proxy_http_version 1.1;
+
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -28,29 +37,28 @@ http {
             proxy_set_header Accept-Encoding "";
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
-            proxy_buffering off;
+
+            proxy_buffering on;
             proxy_read_timeout 3600s;
 
-            proxy_redirect ~^https?://[^/]+(/.*) $http_x_ingress_path$1;
-            proxy_redirect ~^(/.*) $http_x_ingress_path$1;
+            # Rewrite absolute redirects so they stay under the ingress path
+            proxy_redirect ~^https?://[^/]+(/.*)$ $ingress_prefix$1;
+            proxy_redirect ~^(/.*)$ $ingress_prefix$1;
 
-            header_filter_by_lua_block {
-                ngx.header.content_length = nil
-            }
-            body_filter_by_lua_block {
-                local prefix = ngx.var.http_x_ingress_path
-                local data = ngx.arg[1]
-                if prefix and prefix ~= "" and data and data ~= "" then
-                    data = data:gsub('href="/', 'href="' .. prefix .. '/')
-                    data = data:gsub("href='/", "href='" .. prefix .. "/")
-                    data = data:gsub('src="/', 'src="' .. prefix .. '/')
-                    data = data:gsub("src='/", "src='" .. prefix .. "/")
-                    data = data:gsub('action="/', 'action="' .. prefix .. '/')
-                    data = data:gsub('fetch%("/", 'fetch("' .. prefix .. '/')
-                    data = data:gsub("fetch%('/", "fetch('" .. prefix .. "/")
-                    ngx.arg[1] = data
-                end
-            }
+            # Rewrite HTML/JS/CSS links for Home Assistant Ingress
+            # (standard ngx_http_sub_module — no lua required)
+            sub_filter_once off;
+            sub_filter_types text/html text/css application/javascript application/json;
+            sub_filter 'href="/' 'href="$ingress_prefix/';
+            sub_filter "href='/' "href='$ingress_prefix/";
+            sub_filter 'src="/' 'src="$ingress_prefix/';
+            sub_filter "src='/' "src='$ingress_prefix/";
+            sub_filter 'action="/' 'action="$ingress_prefix/';
+            sub_filter "action='/' "action='$ingress_prefix/";
+            sub_filter 'url(/' 'url($ingress_prefix/';
+            sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
+            sub_filter "fetch('/" "fetch('$ingress_prefix/";
+            sub_filter '"/' '"$ingress_prefix/';
         }
     }
 }

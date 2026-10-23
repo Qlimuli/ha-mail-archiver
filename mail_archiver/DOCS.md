@@ -4,18 +4,15 @@ Lokales E-Mail-Archiv in der Home-Assistant-Sidebar.
 
 Die Mails liegen in einer PostgreSQL-Datenbank **im Add-on** (`/data`). Ein extra PostgreSQL-Add-on ist nicht nötig.
 
-## Warum Version 1.0.0 nicht lief
+## Warum frühere Versionen nicht liefen
 
-Das Upstream-Image startet fest mit `ENTRYPOINT dotnet MailArchiver.dll` und der Verbindungszeichenfolge `Host=postgres`.
-Ein `CMD`-Skript wird dadurch ignoriert. In Home Assistant gibt es keinen Host `postgres`, deshalb:
-
-`Name or service not known` auf `tcp://postgres:5432`
-
-Die 404 in der Oberfläche kommt dazu, weil Mail-Archiver Adressen wie `/Account/Login` erzeugt. Der Ingress-Proxy von Home Assistant reicht nur Pfade unter `/api/hassio_ingress/...` durch. Version 1.1.0 setzt die Datenbank lokal und schreibt diese Pfade um.
+- **1.0.x**: Upstream-Image startet mit `Host=postgres`. In HA gibt es diesen Host nicht → Verbindungsfehler.
+- **1.1.0–1.1.3**: Ingress-Pfade wurden mit nginx-Lua umgeschrieben. In manchen Images fehlt `ngx_http_lua_module` → „lua-Modul fehlt“. Zusätzlich konnte der Postgres-Log unter `/data/pg.log` Permission denied verursachen.
+- **1.1.4**: Nutzt nur noch das eingebaute nginx-`sub_filter`-Modul und schreibt Postgres-Logs in `/data/pg/postgres.log`.
 
 ## Einrichtung
 
-1. Add-on **neu bauen** (Repository aktualisieren, Version 1.1.0, nicht nur neu starten).
+1. Add-on **neu bauen** (Repository aktualisieren, Version 1.1.4, nicht nur neu starten).
 2. In der Konfiguration `admin_password` ändern. `use_external_db` auf **false** lassen.
 3. Starten. In der Sidebar **Mail** öffnen.
 4. Anmelden mit `admin_username` / `admin_password`.
