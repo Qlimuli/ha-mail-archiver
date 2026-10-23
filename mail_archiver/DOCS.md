@@ -47,3 +47,12 @@ Nach dem Start: `/data/security/status.json` und Logzeilen `[mail-archiver:secur
 ## Login
 
 `admin_username` / `admin_password` in den Add-on-Optionen.
+
+## GUI: Sicherheit (nur Admin)
+
+Unter **Sicherheit** in der Navbar (nur sichtbar wenn „Benutzer“ in der Navbar ist):
+
+- **Übersicht** – Status, Ereignisse, Quarantäne, Import-Ordner, Scan-Log
+- **Konfiguration** – aktuelle `security_*`-Optionen + manuelle Aktionen (Scan, Signaturen)
+
+Pfad im Ingress: `/security/`
