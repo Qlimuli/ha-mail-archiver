@@ -1,26 +1,27 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.2.6**
+Version **1.2.7**
 
 ## Sicherheit in der Top-Leiste (nur Admin)
 
-In der oberen Leiste erscheint **Sicherheit** (Schild) **nur wenn** in der Navbar **Benutzer** sichtbar ist (Admin).
+**Sicherheit** erscheint nach **Protokoll**, nur wenn **Benutzer** sichtbar ist (Admin).
 
-Eingefügt direkt nach **Protokoll**.
+Add-on auf **1.2.7 neu bauen**, Seite hart neu laden (Strg+F5).
 
-Add-on auf **1.2.6 neu bauen**, Seite hart neu laden (Strg+F5).
+## 1.2.7 – Upload-Fortschrittsbalken
+
+- Beim ZIP/EML-Upload erscheint direkt am Button ein **Fortschrittsbalken** (Prozent + gesendete Größe)
+- Nach 100 % Upload: Anzeige „Server verarbeitet…“
+- Nutzt XHR mit `upload.onprogress` (nicht erst nach Server-Antwort)
 
 ## 1.2.6 – Sicherheit in der Top-Leiste
 
-- Robuster Navbar-Inject: **Sicherheit** erscheint nach **Protokoll** (nur Admin)
-- Mehrere Versuche + MutationObserver, falls die Leiste verzögert geladen wird
-- Passendes `nav-link`-Styling wie die übrigen Menüpunkte
+- Robuster Navbar-Inject nach Protokoll
 
 ## 1.2.5 – Sicherheit (Admin)
 
-- GUI-Sektion **Sicherheit** mit Tabs Übersicht + Konfiguration
-- Scan / Signaturen aktualisieren
+- GUI Übersicht + Konfiguration, Scan / Signaturen
 
 ## 1.2.4 – EML/ZIP-Upload Fix
 
-- Sichtbarer Datei-wählen-Button, große Uploads stabiler
+- Datei-wählen-Button, große Uploads stabiler
