@@ -1,0 +1,5 @@
+labels:
+  org.opencontainers.image.title: "Home Assistant Add-on: Mail Archiver"
+  org.opencontainers.image.description: "Lokales E-Mail-Archiv mit Weboberfläche"
+  org.opencontainers.image.source: "https://github.com/s1t5/mail-archiver"
+  org.opencontainers.image.licenses: "MIT"
