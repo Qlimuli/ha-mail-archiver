@@ -1,28 +1,34 @@
 # Home Assistant Add-on: Mail Archiver
 
-Lokales E-Mail-Archiv (Gmail, GMX, beliebiges IMAP) in der Sidebar.
+Lokales E-Mail-Archiv (Gmail, GMX, IMAP) in der Sidebar – mit optionalem **ClamAV-Virenscan** und Quarantäne.
 
-PostgreSQL läuft im Add-on. `use_external_db` auf **false** lassen. `db_host` leer lassen.
+Repository: `https://github.com/Qlimuli/ha-mail-archiver`  
+Version: **1.2.0**
 
-Repository-URL: `https://github.com/Qlimuli/ha-mail-archiver`
+## Sicherheit (Standard: an)
 
-Aktuelle Version: **1.1.6**
+In den Add-on-Optionen:
 
-## Nutzung
+- **security_virus_scan** – ClamAV an/aus  
+- **security_quarantine** – Treffer nach `/data/quarantine`  
+- **security_block_dangerous_extensions** – `.exe`, `.js`, `.bat`, … blockieren  
+- **security_scan_interval_minutes** – periodischer Scan (0 = aus)
 
-1. Add-on bauen & starten
-2. Sidebar **Mail** öffnen **oder** unter dem Add-on „In Browser öffnen“ (Port 5000)
-3. Login mit `admin_username` / `admin_password`
+Import-Dateien möglichst nach `/data/import` legen; der Scanner prüft sie vor/neben dem Betrieb.
 
-## Changelog
+Details: `mail_archiver/DOCS.md`
 
-### 1.1.6
-- Ingress: Location-Redirects und Cookie-Path korrekt umschreiben
-- Fallback, falls der volle Ingress-Pfad an nginx kommt
-- `<base href>` für korrekte Asset-Pfade → kein Whitescreen mehr
+## Quick-Start
 
-### 1.1.5
-- nginx `sub_filter`-Quoting behoben
+1. Add-on bauen (1.2.0), starten  
+2. Starkes `admin_password` setzen  
+3. `use_external_db: false`  
+4. Sidebar **Mail** oder Port 5000  
 
-### 1.1.4
-- Standard-`sub_filter` statt Lua, Postgres-Log-Rechte
+## Changelog 1.2.0
+
+- ClamAV + freshclam im Image  
+- Konfigurierbare Security-Optionen  
+- Quarantäne-Ordner `/data/quarantine`  
+- Blocklist gefährlicher Dateiendungen  
+- Scan beim Start + periodisch  

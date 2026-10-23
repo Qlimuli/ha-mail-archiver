@@ -1,9 +1,9 @@
 name: "Mail Archiver"
-version: "1.1.6"
+version: "1.2.0"
 slug: mail_archiver
 description: >-
-  Lokales E-Mail-Archiv mit Weboberfläche.
-  Speichert Mails von Gmail, GMX und anderen IMAP-Konten im Add-on (eigene PostgreSQL-Datenbank).
+  Lokales E-Mail-Archiv mit Weboberfläche und optionalem ClamAV-Virenscan.
+  Speichert Mails von Gmail, GMX und anderen IMAP-Konten im Add-on.
 url: "https://github.com/Qlimuli/ha-mail-archiver"
 arch:
   - aarch64
@@ -30,6 +30,14 @@ options:
   db_name: MailArchiver
   db_user: mailuser
   db_password: ""
+  # --- Sicherheit ---
+  security_virus_scan: true
+  security_quarantine: true
+  security_update_signatures_on_start: true
+  security_scan_on_start: true
+  security_scan_interval_minutes: 60
+  security_block_dangerous_extensions: true
+  security_dangerous_extensions: "exe,dll,bat,cmd,com,scr,ps1,vbs,vbe,js,jse,wsf,wsh,msi,msp,hta,cpl,inf,reg,jar,iso,img,vhd,lnk"
 schema:
   admin_username: str
   admin_password: password
@@ -40,3 +48,10 @@ schema:
   db_name: str
   db_user: str
   db_password: password
+  security_virus_scan: bool
+  security_quarantine: bool
+  security_update_signatures_on_start: bool
+  security_scan_on_start: bool
+  security_scan_interval_minutes: int(0,1440)
+  security_block_dangerous_extensions: bool
+  security_dangerous_extensions: str

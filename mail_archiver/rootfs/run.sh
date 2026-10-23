@@ -8,6 +8,7 @@ if [ ! -f "$OPTIONS" ]; then
   echo '{}' > /tmp/options.json
   OPTIONS=/tmp/options.json
 fi
+export OPTIONS_FILE="$OPTIONS"
 
 cfg() { jq -r "$1" "$OPTIONS"; }
 
@@ -15,6 +16,7 @@ ADMIN_USER="$(cfg '.admin_username // "admin"')"
 ADMIN_PASS="$(cfg '.admin_password // "changeme"')"
 TIMEZONE="$(cfg '.timezone // "Europe/Berlin"')"
 USE_EXT="$(cfg '.use_external_db // false')"
+VIRUS_SCAN="$(cfg '.security_virus_scan // true')"
 
 [ "$ADMIN_USER" = "null" ] || [ -z "$ADMIN_USER" ] && ADMIN_USER=admin
 [ "$ADMIN_PASS" = "null" ] || [ -z "$ADMIN_PASS" ] && ADMIN_PASS=changeme
@@ -124,15 +126,22 @@ export TimeZone__DisplayTimeZoneId="${TIMEZONE}"
 export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
 export ASPNETCORE_ENVIRONMENT=Production
-# Avoid broken HTTPS redirects behind HA ingress
 export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 
-mkdir -p /data/keys
+mkdir -p /data/keys /data/import /data/quarantine /data/security
 if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
   rm -rf /app/DataProtection-Keys
 fi
 ln -sfn /data/keys /app/DataProtection-Keys
+
+# --- Sicherheit (ClamAV) ---
+if [ -x /security.sh ]; then
+  log "Starte Sicherheitsmodul…"
+  /security.sh start || log "WARNUNG: Sicherheitsstart mit Fehlern"
+  # Periodischer Hintergrund-Scan
+  /security.sh loop &
+fi
 
 cp /nginx.conf.template /tmp/nginx.conf
 if ! nginx -t -c /tmp/nginx.conf; then
@@ -143,6 +152,7 @@ fi
 
 log "App intern auf 127.0.0.1:5001, Ingress auf Port 5000"
 log "Login: ${ADMIN_USER}"
+log "Virenscan: ${VIRUS_SCAN} | Quarantäne: /data/quarantine | Import-Drop: /data/import"
 log "Direkt (ohne Ingress): http://<ha-ip>:5000"
 
 nginx -c /tmp/nginx.conf -g 'daemon off;' &

@@ -1,42 +1,49 @@
 # Mail Archiver
 
-Lokales E-Mail-Archiv in der Home-Assistant-Sidebar.
+Lokales E-Mail-Archiv in der Home-Assistant-Sidebar, optional mit **ClamAV-Virenscan** und Quarantäne.
 
-Die Mails liegen in einer PostgreSQL-Datenbank **im Add-on** (`/data`). Ein extra PostgreSQL-Add-on ist nicht nötig.
+## Sicherheit (ab 1.2.0)
 
-## Warum frühere Versionen nicht liefen
+| Option | Standard | Bedeutung |
+|--------|----------|-----------|
+| `security_virus_scan` | **true** | ClamAV aktiv (Signaturen + Scan) |
+| `security_quarantine` | **true** | Infizierte Dateien nach `/data/quarantine` verschieben |
+| `security_update_signatures_on_start` | true | Beim Start `freshclam` (Signatur-Update) |
+| `security_scan_on_start` | true | Scan von Import-/Export-Ordnern beim Start |
+| `security_scan_interval_minutes` | 60 | Periodischer Rescan (0 = aus) |
+| `security_block_dangerous_extensions` | true | `.exe`, `.js`, `.bat`, … sofort in Quarantäne |
+| `security_dangerous_extensions` | (Liste) | Kommagetrennte Endungen ohne Punkt |
 
-- **1.0.x**: Upstream-Image startet mit `Host=postgres`. In HA gibt es diesen Host nicht → Verbindungsfehler.
-- **1.1.0–1.1.3**: Ingress-Pfade wurden mit nginx-Lua umgeschrieben. In manchen Images fehlt `ngx_http_lua_module` → „lua-Modul fehlt“. Zusätzlich konnte der Postgres-Log unter `/data/pg.log` Permission denied verursachen.
-- **1.1.4**: Nutzt nur noch das eingebaute nginx-`sub_filter`-Modul und schreibt Postgres-Logs in `/data/pg/postgres.log`.
+### Was wird gescannt?
 
-## Einrichtung
+- `/data/import` – leg hier EML/ZIP/MBox **vor dem Import** ab und warte auf den Scan
+- `/data/mail-export` und ähnliche Export-Ordner
+- lose `*.eml` / `*.mbox` / `*.zip` unter `/data`
 
-1. Add-on **neu bauen** (Repository aktualisieren, Version 1.1.4, nicht nur neu starten).
-2. In der Konfiguration `admin_password` ändern. `use_external_db` auf **false** lassen.
-3. Starten. In der Sidebar **Mail** öffnen.
-4. Anmelden mit `admin_username` / `admin_password`.
-5. Unter E-Mail-Konten Gmail oder GMX eintragen.
+Infizierte Dateien landen in **`/data/quarantine`** (wenn Quarantäne an ist) und werden **nicht** im Archiv belassen, soweit sie als Datei auf der Festplatte liegen.
 
-### Gmail
+### Wichtiger Hinweis
 
-- IMAP in Gmail aktivieren
-- 2FA an, dann ein App-Passwort erzeugen
-- Server `imap.gmail.com`, Port `993`, SSL
+Anhänge, die die App **bereits in der PostgreSQL-Datenbank** gespeichert hat (IMAP-Sync / Web-Upload direkt in die App), liegen als Binärdaten in der DB. ClamAV im Add-on scannt diese Blobs **nicht einzeln aus der DB**.  
 
-### GMX
+**Empfohlener sicherer Ablauf für Mailstation-Import:**
 
-- In GMX unter Einstellungen POP3/IMAP einschalten
-- Server `imap.gmx.net` (oder `imap.gmx.com`), Port `993`, SSL
-- normales GMX-Passwort
+1. Maildir → EML (Skript) auf dem PC  
+2. Windows Defender / ClamAV lokal über den Export  
+3. Saubere Dateien nach `/data/import` (oder ZIP über die UI)  
+4. Add-on scannt `/data/import` beim Start und periodisch  
+5. Erst dann in der UI importieren  
 
-## Externe Datenbank
+So liegen keine bekannten Schadfiles als lose Dateien im Add-on.
 
-Nur wenn du schon ein PostgreSQL-Add-on hast:
+### Status
 
-- `use_external_db`: true
-- `db_host`: Hostname des Add-ons. **Nicht** `postgres`.
+Nach dem Start: `/data/security/status.json` und Logzeilen `[mail-archiver:security]`.
 
-## Backup
+## Datenbank
 
-Home-Assistant-Backup des Add-ons sichert `/data` inklusive der Mail-Datenbank.
+`use_external_db: false`, `db_host` leer → PostgreSQL im Add-on unter `/data/pg`.
+
+## Login
+
+`admin_username` / `admin_password` in den Add-on-Optionen.
