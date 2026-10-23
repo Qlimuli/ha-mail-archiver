@@ -4,7 +4,7 @@ slug: mail_archiver
 description: >-
   Lokales E-Mail-Archiv mit Weboberfläche.
   Speichert Mails von Gmail, GMX und anderen IMAP-Konten dauerhaft auf dem Home Assistant.
-url: "https://github.com/YOUR_USERNAME/ha-mail-archiver"
+url: "https://github.com/qlimuli/ha-mail-archiver"
 arch:
   - aarch64
   - amd64
