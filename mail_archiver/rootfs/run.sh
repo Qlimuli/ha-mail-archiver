@@ -55,14 +55,12 @@ start_embedded_postgres() {
   chown -R postgres:postgres "$pgdata"
   chmod 700 "$pgdata"
 
-  # Log file inside the data dir (owned by postgres) — never /data/pg.log
   local pglog="${pgdata}/postgres.log"
   touch "$pglog" 2>/dev/null || true
   chown postgres:postgres "$pglog" 2>/dev/null || true
 
   if ! su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} status" >/dev/null 2>&1; then
     log "Starte PostgreSQL"
-    # Stop any leftover server that might still hold the port
     su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -m fast stop" >/dev/null 2>&1 || true
     sleep 1
     su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l ${pglog} -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"
@@ -126,6 +124,9 @@ export TimeZone__DisplayTimeZoneId="${TIMEZONE}"
 export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
 export ASPNETCORE_ENVIRONMENT=Production
+# Avoid broken HTTPS redirects behind HA ingress
+export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 
 mkdir -p /data/keys
 if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
@@ -133,7 +134,6 @@ if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
 fi
 ln -sfn /data/keys /app/DataProtection-Keys
 
-# Prepare nginx config (no dynamic load_module needed)
 cp /nginx.conf.template /tmp/nginx.conf
 if ! nginx -t -c /tmp/nginx.conf; then
   log "ERROR: nginx Konfiguration ungültig"
@@ -143,6 +143,7 @@ fi
 
 log "App intern auf 127.0.0.1:5001, Ingress auf Port 5000"
 log "Login: ${ADMIN_USER}"
+log "Direkt (ohne Ingress): http://<ha-ip>:5000"
 
 nginx -c /tmp/nginx.conf -g 'daemon off;' &
 
