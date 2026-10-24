@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Security page (Admin) + chunk upload API."""
+"""Security page (Admin) + chunk upload + local import CLI trigger."""
 from __future__ import annotations
 
 import json
@@ -278,83 +278,102 @@ def handle_chunk(headers, body: bytes) -> dict:
     }
 
 
+def trigger_local_import(file_path: str, account_id: int) -> dict:
+    """Start upstream CLI import so a real EML-Import job appears in the UI."""
+    path = Path(file_path)
+    if not path.is_file():
+        alt = IMPORT / Path(file_path).name
+        if alt.is_file():
+            path = alt
+        else:
+            return {"ok": False, "message": f"Datei nicht gefunden: {file_path}"}
+    try:
+        path.resolve().relative_to(IMPORT.resolve())
+    except Exception:
+        return {"ok": False, "message": "Datei muss unter /data/import liegen"}
+    if account_id < 1:
+        return {"ok": False, "message": "Ungueltige account_id"}
+
+    cmd = [
+        "dotnet",
+        "MailArchiver.dll",
+        "--import-eml",
+        "--file",
+        str(path),
+        "--account-id",
+        str(account_id),
+    ]
+    cwd = "/app" if Path("/app/MailArchiver.dll").exists() else str(Path.cwd())
+    try:
+        append_event("local_import_start", f"file={path.name} account_id={account_id}")
+        log_path = DATA / "security" / "import-cli.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logf = open(log_path, "a", encoding="utf-8")
+        logf.write(f"\n=== {_now()} import {path} account={account_id} ===\n")
+        logf.flush()
+        proc = subprocess.Popen(
+            cmd,
+            cwd=cwd,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            env=os.environ.copy(),
+        )
+        append_event("local_import_spawned", f"pid={proc.pid} file={path.name}")
+        return {
+            "ok": True,
+            "message": f"Import gestartet (PID {proc.pid}) fuer {path.name}",
+            "pid": proc.pid,
+            "file": path.name,
+            "account_id": account_id,
+        }
+    except Exception as e:
+        append_event("local_import_error", str(e))
+        return {"ok": False, "message": str(e)}
+
+
 HTML = """<!DOCTYPE html>
 <html lang="de" data-bs-theme="dark"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Sicherheit – Mail Archiver</title>
+<title>Sicherheit</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"/>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"/>
 <style>
-body{background:#1a1d21;color:#e9ecef;min-height:100vh}
-.navbar{background:#212529!important;border-bottom:1px solid #343a40}
+body{background:#1a1d21;color:#e9ecef}
 .card{background:#212529;border-color:#343a40}
-.card-header{background:#2b3035;border-bottom-color:#343a40;font-weight:600}
-.stat-val{font-size:1.35rem;font-weight:600}
-.log{max-height:320px;overflow:auto;font-size:.8rem;background:#0d1117;padding:.75rem;border-radius:.375rem;white-space:pre-wrap;word-break:break-all}
-.table{--bs-table-bg:transparent;--bs-table-color:#e9ecef;--bs-table-border-color:#343a40;--bs-table-hover-bg:#2b3035}
-.nav-tabs .nav-link{color:#adb5bd}.nav-tabs .nav-link.active{background:#212529;color:#fff;border-color:#343a40 #343a40 #212529}
-.cfg-row{border-bottom:1px solid #343a40;padding:.65rem 0}.cfg-row:last-child{border-bottom:0}
-.badge-on{background:#198754}.badge-off{background:#6c757d}.admin-hint{font-size:.85rem;color:#adb5bd}
+.log{max-height:280px;overflow:auto;font-size:.8rem;background:#0d1117;padding:.75rem;white-space:pre-wrap}
 </style></head><body>
-<nav class="navbar navbar-expand-lg navbar-dark mb-3"><div class="container-fluid">
-<a class="navbar-brand" href="#" id="brand-home"><i class="bi bi-envelope-fill me-1"></i>Mail Archiver</a>
-<div class="collapse navbar-collapse show"><ul class="navbar-nav me-auto">
-<li class="nav-item"><a class="nav-link" href="#" id="link-dash">Dashboard</a></li>
-<li class="nav-item"><a class="nav-link active" href="#"><i class="bi bi-shield-check me-1"></i>Sicherheit</a></li>
-</ul>
-<span class="navbar-text me-3" id="header-badge"></span>
-<span class="navbar-text admin-hint"><i class="bi bi-person-badge me-1"></i>Nur Admin</span>
-</div></div></nav>
-<div class="container-fluid px-3 px-lg-4 pb-4">
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-<div><h1 class="h3 mb-0"><i class="bi bi-shield-lock me-2"></i>Sicherheit</h1>
-<p class="text-muted mb-0 small">ClamAV, Quarantäne, Scan (Admin)</p></div>
-<div class="d-flex gap-2 flex-wrap">
-<button type="button" class="btn btn-primary" id="btn-scan"><i class="bi bi-play-fill me-1"></i>Scan jetzt</button>
-<button type="button" class="btn btn-outline-info" id="btn-update"><i class="bi bi-cloud-download me-1"></i>Signaturen</button>
-<button type="button" class="btn btn-outline-light" id="btn-refresh"><i class="bi bi-arrow-clockwise me-1"></i>Aktualisieren</button>
-</div></div>
-<ul class="nav nav-tabs mb-3" role="tablist">
-<li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-overview" type="button">Übersicht</button></li>
-<li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-config" type="button">Konfiguration</button></li>
-</ul>
-<div class="tab-content">
-<div class="tab-pane fade show active" id="tab-overview">
-<div class="row g-3 mb-3" id="cards"></div>
-<div class="card mb-3"><div class="card-header">Ereignisse</div><div class="card-body p-0" id="events"></div></div>
-<div class="row g-3 mb-3"><div class="col-lg-6"><div class="card h-100"><div class="card-header">Quarantäne <span id="q-count" class="text-muted"></span></div><div class="card-body p-0" id="quarantine"></div></div></div>
-<div class="col-lg-6"><div class="card h-100"><div class="card-header">Import <code>/data/import</code></div><div class="card-body p-0" id="import"></div></div></div></div>
-<div class="card mb-3"><div class="card-header">Scan-Log</div><div class="card-body"><pre class="log mb-0" id="log">Lade…</pre></div></div>
+<nav class="navbar navbar-dark bg-dark mb-3 px-3">
+<a class="navbar-brand" id="home" href="#"><i class="bi bi-envelope-fill me-1"></i>Mail Archiver</a>
+<span class="navbar-text"><i class="bi bi-shield-check me-1"></i>Sicherheit</span>
+</nav>
+<div class="container-fluid px-3 pb-4">
+<div class="d-flex gap-2 mb-3 flex-wrap">
+<button class="btn btn-primary btn-sm" id="scan">Scan jetzt</button>
+<button class="btn btn-outline-info btn-sm" id="upd">Signaturen</button>
+<button class="btn btn-outline-light btn-sm" id="ref">Aktualisieren</button>
 </div>
-<div class="tab-pane fade" id="tab-config">
-<div class="alert alert-secondary">Einstellungen in den <strong>Add-on-Optionen</strong>. Hier: aktueller Stand + Aktionen.</div>
-<div class="card mb-3"><div class="card-header">Aktuelle Sicherheitseinstellungen</div><div class="card-body" id="config-body"><div class="text-muted">Lade…</div></div></div>
-<div class="card mb-3"><div class="card-header">Laufzeit-Aktionen</div><div class="card-body">
-<button type="button" class="btn btn-primary btn-sm me-2" id="btn-scan-cfg">Scan starten</button>
-<button type="button" class="btn btn-outline-info btn-sm" id="btn-update-cfg">Signaturen aktualisieren</button>
-<div id="action-msg" class="mt-3"></div></div></div>
-</div></div></div>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<div class="row g-3 mb-3" id="cards"></div>
+<div class="card mb-3"><div class="card-header">Import /data/import</div><div class="card-body p-0" id="imp"></div></div>
+<div class="card mb-3"><div class="card-header">Ereignisse</div><div class="card-body p-0" id="ev"></div></div>
+<div class="card"><div class="card-header">Log</div><div class="card-body"><pre class="log mb-0" id="log"></pre></div></div>
+</div>
 <script>
 (function(){
-function securityBase(){var p=location.pathname.replace(/\/+$/,'');if(p.endsWith('/security'))return p;var i=p.lastIndexOf('/security');if(i>=0)return p.slice(0,i+'/security'.length);return '/security';}
-var base=securityBase();var home=base.replace(/\/security\/?$/,'/')||'../';
-document.getElementById('brand-home').href=home;document.getElementById('link-dash').href=home;
-function api(path,opts){return fetch(base+path,opts).then(function(r){if(!r.ok)throw new Error(r.status+' '+r.statusText);var ct=r.headers.get('content-type')||'';return ct.indexOf('json')>=0?r.json():r.text();});}
-function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'})[c];});}
-function fmtSize(n){if(n<1024)return n+' B';if(n<1048576)return(n/1024).toFixed(1)+' KB';return(n/1048576).toFixed(1)+' MB';}
-function boolBadge(v){return v?'<span class="badge badge-on">An</span>':'<span class="badge badge-off">Aus</span>';}
-function table(rows,empty){if(!rows||!rows.length)return'<div class="p-3 text-muted">'+empty+'</div>';var h='<div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead><tr><th>Datei</th><th>Größe</th><th>Geändert</th></tr></thead><tbody>';rows.forEach(function(r){h+='<tr><td>'+esc(r.path)+'</td><td>'+fmtSize(r.size)+'</td><td>'+esc(r.mtime)+'</td></tr>';});return h+'</tbody></table></div>';}
-function badge(enabled,clamd,infected){var el=document.getElementById('header-badge');if(enabled===false)el.innerHTML='<span class="badge text-bg-secondary">Scan aus</span>';else if(infected>0)el.innerHTML='<span class="badge text-bg-danger">Treffer</span>';else if(clamd)el.innerHTML='<span class="badge text-bg-success">Aktiv</span>';else el.innerHTML='<span class="badge text-bg-warning text-dark">clamscan</span>';}
-function renderConfig(opts){var rows=[{key:'security_virus_scan',label:'Virenscan',type:'bool'},{key:'security_quarantine',label:'Quarantäne',type:'bool'},{key:'security_update_signatures_on_start',label:'Signaturen beim Start',type:'bool'},{key:'security_scan_on_start',label:'Scan beim Start',type:'bool'},{key:'security_scan_interval_minutes',label:'Scan-Intervall',type:'num'},{key:'security_block_dangerous_extensions',label:'Gefährliche Endungen',type:'bool'},{key:'security_dangerous_extensions',label:'Endungen',type:'text'}];var h='';rows.forEach(function(r){var v=opts[r.key];var val=r.type==='bool'?boolBadge(!!v):(r.type==='num'?'<code>'+esc(v)+'</code> Min.':'<code class="small">'+esc(v)+'</code>');h+='<div class="cfg-row d-flex justify-content-between"><div>'+esc(r.label)+' <code class="small">'+esc(r.key)+'</code></div><div>'+val+'</div></div>';});document.getElementById('config-body').innerHTML=h;}
-function refresh(){api('/api/status').then(function(data){var s=data.status||{};var infected=s.infected_moved||0;badge(s.virus_scan_enabled,data.clamd_alive||s.clamd_running,infected);
-document.getElementById('cards').innerHTML='<div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Virenscan</div><div class="stat-val">'+(s.virus_scan_enabled===false?'Aus':'An')+'</div></div></div></div><div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">ClamAV</div><div class="stat-val">'+((data.clamd_alive||s.clamd_running)?'Daemon':'CLI')+'</div></div></div></div><div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Letzter Scan</div><div class="stat-val fs-6">'+esc(s.last_scan||'—')+'</div></div></div></div><div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Infiziert</div><div class="stat-val">'+infected+'</div></div></div></div>';
-var ev=data.events||[];if(!ev.length)document.getElementById('events').innerHTML='<div class="p-3 text-muted">Keine Ereignisse</div>';else{var eh='<table class="table table-sm mb-0"><thead><tr><th>Zeit</th><th>Art</th><th>Detail</th></tr></thead><tbody>';ev.slice(0,40).forEach(function(e){eh+='<tr><td>'+esc(e.ts||'')+'</td><td><code>'+esc(e.kind||'')+'</code></td><td>'+esc(e.detail||e.raw||'')+'</td></tr>';});document.getElementById('events').innerHTML=eh+'</tbody></table>';}
-var q=data.quarantine||[];document.getElementById('q-count').textContent=q.length?'('+q.length+')':'';document.getElementById('quarantine').innerHTML=table(q,'leer');document.getElementById('import').innerHTML=table(data.import_files||[],'Keine Dateien');document.getElementById('log').textContent=data.log||'';if(data.options)renderConfig(data.options);}).catch(function(err){document.getElementById('log').textContent='Fehler: '+err;});}
-function showMsg(ok,msg){var el=document.getElementById('action-msg');if(!el)return;el.innerHTML='<div class="alert alert-'+(ok?'success':'warning')+' py-2 mb-0">'+esc(msg)+'</div>';}
-function doScan(){api('/api/scan',{method:'POST'}).then(function(r){showMsg(r.ok,r.message||'OK');setTimeout(refresh,1500);}).catch(function(e){showMsg(false,String(e));});}
-function doUpdate(){api('/api/update',{method:'POST'}).then(function(r){showMsg(r.ok,r.message||'OK');setTimeout(refresh,2000);}).catch(function(e){showMsg(false,String(e));});}
-document.getElementById('btn-scan').onclick=doScan;document.getElementById('btn-scan-cfg').onclick=doScan;document.getElementById('btn-update').onclick=doUpdate;document.getElementById('btn-update-cfg').onclick=doUpdate;document.getElementById('btn-refresh').onclick=refresh;refresh();setInterval(refresh,10000);
+function base(){var p=location.pathname.replace(/\/+$/,'');var i=p.lastIndexOf('/security');return i>=0?p.slice(0,i+'/security'.length):'/security';}
+var B=base(); document.getElementById('home').href=B.replace(/\/security\/?$/,'/')||'../';
+function api(p,o){return fetch(B+p,o).then(function(r){return r.json();});}
+function esc(s){return String(s||'').replace(/[&<>]/g,function(c){return({'&':'&','<':'<','>':'>'})[c];});}
+function refresh(){api('/api/status').then(function(d){
+var s=d.status||{};
+document.getElementById('cards').innerHTML='<div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Scan</div><div class="fs-5">'+(s.virus_scan_enabled===false?'Aus':'An')+'</div></div></div></div><div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">ClamAV</div><div class="fs-5">'+(d.clamd_alive?'Daemon':'CLI')+'</div></div></div></div><div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Infiziert</div><div class="fs-5">'+(s.infected_moved||0)+'</div></div></div></div><div class="col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Letzter Scan</div><div class="small">'+esc(s.last_scan||'-')+'</div></div></div></div>';
+var files=d.import_files||[];
+document.getElementById('imp').innerHTML=files.length?'<ul class="list-group list-group-flush">'+files.map(function(f){return '<li class="list-group-item bg-transparent text-light">'+esc(f.path)+' ('+f.size+')</li>';}).join('')+'</ul>':'<div class="p-3 text-muted">leer</div>';
+var ev=d.events||[];
+document.getElementById('ev').innerHTML=ev.length?'<ul class="list-group list-group-flush">'+ev.slice(0,20).map(function(e){return '<li class="list-group-item bg-transparent text-light small">'+esc(e.ts)+' <code>'+esc(e.kind)+'</code> '+esc(e.detail||'')+'</li>';}).join('')+'</ul>':'<div class="p-3 text-muted">keine</div>';
+document.getElementById('log').textContent=d.log||'';}).catch(function(e){document.getElementById('log').textContent=String(e);});}
+document.getElementById('scan').onclick=function(){api('/api/scan',{method:'POST'}).then(function(){setTimeout(refresh,1000);});};
+document.getElementById('upd').onclick=function(){api('/api/update',{method:'POST'}).then(function(){setTimeout(refresh,1500);});};
+document.getElementById('ref').onclick=refresh; refresh(); setInterval(refresh,15000);
 })();
 </script></body></html>
 """
@@ -420,6 +439,24 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/update":
             self._json(200, trigger_update())
             return
+        if path == "/api/import-local":
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                length = 0
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                data = json.loads(raw.decode("utf-8") or "{}")
+            except Exception:
+                data = {}
+            file_path = data.get("file") or data.get("path") or ""
+            try:
+                account_id = int(data.get("account_id") or 0)
+            except (TypeError, ValueError):
+                account_id = 0
+            result = trigger_local_import(str(file_path), account_id)
+            self._json(200 if result.get("ok") else 400, result)
+            return
         if path == "/api/upload-chunk":
             try:
                 length = int(self.headers.get("Content-Length") or "0")
@@ -435,8 +472,7 @@ class Handler(BaseHTTPRequestHandler):
             }
             try:
                 result = handle_chunk(hdrs, body)
-                code = 200 if result.get("ok") else 400
-                self._json(code, result)
+                self._json(200 if result.get("ok") else 400, result)
             except Exception as e:
                 self._json(500, {"ok": False, "message": str(e)})
             return
