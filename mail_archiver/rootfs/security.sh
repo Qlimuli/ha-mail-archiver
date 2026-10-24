@@ -78,68 +78,52 @@ block_dangerous_files() {
       for e in "${exts[@]}"; do
         e="${e// /}"
         e="${e,,}"
-        e="${e#.}"
+        [[ -z "$e" ]] && continue
         if [[ "$ext" == "$e" ]]; then
-          log "BLOCK: gefährliche Endung .$ext → Quarantäne: $f"
-          event "blocked_extension" ".$ext $f"
-          mkdir -p "$QUAR_DIR/blocked-extensions"
-          mv -f "$f" "$QUAR_DIR/blocked-extensions/" 2>/dev/null || rm -f "$f"
+          log "Gefährliche Endung: $f → Quarantäne"
+          mv -f "$f" "$QUAR_DIR/" 2>/dev/null || rm -f "$f"
+          event "dangerous_extension" "$f"
           count=$((count + 1))
           break
         fi
       done
     done < <(find "$dir" -type f -print0 2>/dev/null)
   done
-  [[ $count -gt 0 ]] && log "Blockiert/verschoben: $count Datei(en) mit gefährlicher Endung"
+  [[ "$count" -gt 0 ]] && log "$count Datei(en) mit gefährlicher Endung isoliert"
 }
 
 update_signatures() {
   is_true "$VIRUS_SCAN" || return 0
-  is_true "$UPDATE_SIG" || return 0
+  is_true "$UPDATE_SIG" || { log "Signatur-Update übersprungen"; return 0; }
   log "Aktualisiere ClamAV-Signaturen (freshclam)…"
-  event "freshclam_start" "updating signatures"
-  if freshclam --quiet 2>/dev/null || freshclam 2>&1 | tail -20; then
+  if command -v freshclam >/dev/null 2>&1; then
+    freshclam --quiet 2>&1 | tail -20 || log "WARNUNG: freshclam mit Fehlern"
     log "Signaturen aktualisiert"
-    event "freshclam_ok" "signatures updated"
   else
-    log "WARNUNG: freshclam fehlgeschlagen (Netzwerk?)."
-    event "freshclam_fail" "network or mirror error"
+    log "freshclam nicht gefunden"
   fi
 }
 
 start_clamd() {
-  is_true "$VIRUS_SCAN" || {
-    log "Virenscan deaktiviert"
-    write_status false false "" 0 "virus scan disabled"
-    event "disabled" "virus scan off in options"
-    return 0
-  }
-
-  if ! command -v clamd >/dev/null 2>&1 && ! command -v clamscan >/dev/null 2>&1; then
-    log "ERROR: ClamAV nicht installiert"
-    write_status true false "" 0 "clamav missing"
-    return 1
-  fi
-
-  mkdir -p /var/run/clamav
-  chown clamav:clamav /var/run/clamav 2>/dev/null || true
-
-  if command -v clamd >/dev/null 2>&1; then
-    if ! pgrep -x clamd >/dev/null 2>&1; then
-      log "Starte clamd…"
-      clamd || true
-      sleep 2
-    fi
-  fi
-
+  is_true "$VIRUS_SCAN" || return 0
   if pgrep -x clamd >/dev/null 2>&1; then
-    log "clamd läuft"
-    write_status true true "" 0 "clamd running"
-    event "clamd_start" "daemon running"
+    log "clamd läuft bereits"
+    return 0
+  fi
+  log "Starte clamd…"
+  if command -v clamd >/dev/null 2>&1; then
+    clamd 2>/dev/null &
+    local i
+    for i in $(seq 1 30); do
+      if pgrep -x clamd >/dev/null 2>&1; then
+        log "clamd läuft"
+        return 0
+      fi
+      sleep 1
+    done
+    log "WARNUNG: clamd startete nicht rechtzeitig"
   else
-    log "clamd nicht gestartet – nutze clamscan"
-    write_status true false "" 0 "clamscan only"
-    event "clamd_fallback" "using clamscan"
+    log "clamd Binary nicht gefunden – Scan per clamscan CLI"
   fi
 }
 
@@ -147,19 +131,11 @@ scan_path() {
   local path="$1"
   [[ -e "$path" ]] || return 0
   is_true "$VIRUS_SCAN" || return 0
-
-  local move_arg=()
-  if is_true "$QUARANTINE"; then
-    mkdir -p "$QUAR_DIR"
-    move_arg=( --move="$QUAR_DIR" )
-  fi
-
-  local infected=0
-  local out
+  local out infected=0
   if pgrep -x clamd >/dev/null 2>&1 && command -v clamdscan >/dev/null 2>&1; then
-    out=$(clamdscan --fdpass --no-summary "${move_arg[@]}" -r "$path" 2>&1) || true
+    out=$(clamdscan --fdpass --move="$QUAR_DIR" "$path" 2>&1) || true
   elif command -v clamscan >/dev/null 2>&1; then
-    out=$(clamscan --no-summary --infected "${move_arg[@]}" -r "$path" 2>&1) || true
+    out=$(clamscan -r --move="$QUAR_DIR" "$path" 2>&1) || true
   else
     log "Kein Scanner verfügbar"
     return 1
@@ -231,8 +207,12 @@ case "$cmd" in
     update_signatures
     start_clamd
     block_dangerous_files
+    # Scan im Hintergrund – sonst blockiert der Start nginx + App (GUI unerreichbar)
     if is_true "$SCAN_ON_START"; then
-      run_full_scan
+      log "Starte Sicherheits-Scan im Hintergrund…"
+      (
+        run_full_scan
+      ) &
     fi
     ;;
   scan)
