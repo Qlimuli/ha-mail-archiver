@@ -1,5 +1,5 @@
 name: "Mail Archiver"
-version: "1.3.2"
+version: "1.3.3"
 slug: mail_archiver
 description: >-
   Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz (Menüpunkt nur für Admins).
