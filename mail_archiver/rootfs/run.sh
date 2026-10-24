@@ -130,14 +130,23 @@ export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 
 mkdir -p /data/keys /data/import /data/quarantine /data/security /app/imports
-# LocalImport-Pfad der App + HA-Volume verknüpfen (große EML/ZIP-Uploads zuverlässig)
+# Temp-Ordner beim Start bereinigen (unvollständige Chunk-Uploads, nginx-Body-Temp)
+log "Bereinige Temp-Ordner…"
+rm -rf /data/import/.upload_tmp 2>/dev/null || true
+mkdir -p /data/import/.upload_tmp
+rm -rf /var/lib/nginx/body/* 2>/dev/null || true
+rm -rf /tmp/nginx_client_body* 2>/dev/null || true
+rm -rf /app/uploads/eml/.tmp 2>/dev/null || true
+find /app/uploads/eml -type f -name '*.part' -delete 2>/dev/null || true
+find /data/import -maxdepth 1 -type f \( -name '*.part' -o -name '.*.json' \) -delete 2>/dev/null || true
+log "Temp-Bereinigung fertig"
+# LocalImport-Pfad der App + HA-Volume verknüpfen
 ln -sfn /data/import /app/imports 2>/dev/null || true
 if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
   rm -rf /app/DataProtection-Keys
 fi
 ln -sfn /data/keys /app/DataProtection-Keys
 
-# Upload-Limits und LocalImport für große Dateien (bis 10 GB)
 export Upload__MaxFileSizeGB=10
 export Upload__KeepAliveTimeoutHours=4
 export Upload__RequestHeadersTimeoutHours=2
