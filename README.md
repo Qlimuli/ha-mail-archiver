@@ -1,11 +1,11 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.5**
+Version **1.3.6**
 
-## 1.3.5 – Bessere Mobile-Skalierung
+## 1.3.6 – Mobile in HA Companion App
 
-- Kompaktere Navbar, Karten und Buttons auf Smartphones
-- Inputs 16px (kein iOS-Zoom), Touch-Targets ~44px
-- Weniger Seitenränder, Safe-Area, kein horizontaler Overflow
+- Cache-Bust `ha-ui-inject.js?v=136` (WebView-Cache der HA-App)
+- Mobile-Styles greifen unter **Ingress** / Touch / ≤992px
+- Aggressivere Abstände mit `!important`
 
-Add-on **1.3.5** neu bauen.
+Add-on **1.3.6** neu bauen. In der HA-App: Sidebar schließen, Add-on neu öffnen (ggf. App killen).
