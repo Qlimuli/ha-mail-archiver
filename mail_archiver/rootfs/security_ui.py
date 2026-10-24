@@ -174,7 +174,7 @@ def trigger_local_import(file_path, account_id, cookie=""):
             import re, urllib.request, urllib.error, uuid
             base = os.environ.get("MAIL_ARCHIVER_INTERNAL", "http://127.0.0.1:5001").rstrip("/")
             import_url = base + "/MailAccounts/ImportEml"
-            req = urllib.request.Request(import_url, headers={"Cookie": cookie, "User-Agent": "ha-mail-archiver/1.3.7"})
+            req = urllib.request.Request(import_url, headers={"Cookie": cookie, "User-Agent": "ha-mail-archiver/1.3.9"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
             m = re.search(r'name="__RequestVerificationToken"[^>]*value="([^"]+)"', html) or re.search(r'value="([^"]+)"[^>]*name="__RequestVerificationToken"', html)
@@ -196,7 +196,7 @@ def trigger_local_import(file_path, account_id, cookie=""):
                         raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
                 req2 = urllib.request.Request(import_url, data=body, method="POST", headers={
                     "Cookie": cookie, "Content-Type": f"multipart/form-data; boundary={boundary}",
-                    "Content-Length": str(len(body)), "User-Agent": "ha-mail-archiver/1.3.7",
+                    "Content-Length": str(len(body)), "User-Agent": "ha-mail-archiver/1.3.9",
                 })
                 try:
                     urllib.request.build_opener(_NoRedir).open(req2, timeout=600)
@@ -249,10 +249,11 @@ HTML = """<!DOCTYPE html>
 <div class="col-auto"><button class="btn btn-sm btn-danger" id="rules-apply">Jetzt löschen</button></div>
 </div>
 <div class="row g-2 mb-2">
-<div class="col-md-3"><input class="form-control form-control-sm" id="r-name" placeholder="Name"></div>
+<div class="col-md-2"><input class="form-control form-control-sm" id="r-name" placeholder="Name"></div>
 <div class="col-md-2"><select class="form-select form-select-sm" id="r-mode"><option value="contains">enthält</option><option value="exact">exakt</option><option value="domain">Domain</option></select></div>
 <div class="col-md-3"><input class="form-control form-control-sm" id="r-from" placeholder="Absender / Domain"></div>
 <div class="col-md-2"><input class="form-control form-control-sm" id="r-subj" placeholder="Betreff (opt.)"></div>
+<div class="col-md-1"><input type="number" min="0" class="form-control form-control-sm" id="r-age" placeholder="Tage" title="Nur Mails älter als X Tage (0 = alle)"></div>
 <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" id="r-add">Regel speichern</button></div>
 </div>
 <div id="rules-list" class="small"></div>
@@ -278,14 +279,14 @@ document.getElementById('rules-enabled').checked=!!d.enabled;
 document.getElementById('rules-interval').value=d.interval_minutes||30;
 var rules=d.rules||[], el=document.getElementById('rules-list');
 if(!rules.length){el.innerHTML='<div class="text-muted">Keine Regeln – Absender eintragen und speichern.</div>';return;}
-el.innerHTML='<ul class="list-group list-group-flush">'+rules.map(function(r){var m=r.match||{};return '<li class="list-group-item bg-transparent text-light d-flex justify-content-between gap-2"><div><b>'+esc(r.name)+'</b> '+esc(m.from_mode)+': <code>'+esc(m.from_value)+'</code></div><button class="btn btn-sm btn-outline-danger" data-del="'+esc(r.id)+'">×</button></li>';}).join('')+'</ul>';
+el.innerHTML='<ul class="list-group list-group-flush">'+rules.map(function(r){var m=r.match||{};var age=m.min_age_days?(' ≥'+m.min_age_days+'d'):'';return '<li class="list-group-item bg-transparent text-light d-flex justify-content-between gap-2"><div><b>'+esc(r.name)+'</b> '+esc(m.from_mode)+': <code>'+esc(m.from_value)+'</code>'+age+(m.subject_contains?(' / '+esc(m.subject_contains)):'')+'</div><button class="btn btn-sm btn-outline-danger" data-del="'+esc(r.id)+'">×</button></li>';}).join('')+'</ul>';
 el.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:b.getAttribute('data-del')})}).then(loadRules);};});
 }).catch(function(e){document.getElementById('rules-out').textContent=String(e);});}
 document.getElementById('scan').onclick=function(){api('/api/scan',{method:'POST'}).then(function(){setTimeout(refresh,1000);});};
 document.getElementById('upd').onclick=function(){api('/api/update',{method:'POST'}).then(function(){setTimeout(refresh,1500);});};
 document.getElementById('ref').onclick=function(){refresh();loadRules();};
 document.getElementById('rules-save-set').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'settings',enabled:document.getElementById('rules-enabled').checked,interval_minutes:parseInt(document.getElementById('rules-interval').value||'30',10)})}).then(loadRules);};
-document.getElementById('r-add').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',rule:{name:document.getElementById('r-name').value,enabled:true,match:{from_mode:document.getElementById('r-mode').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value}}})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r);document.getElementById('r-from').value='';loadRules();});};
+document.getElementById('r-add').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',rule:{name:document.getElementById('r-name').value,enabled:true,match:{from_mode:document.getElementById('r-mode').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:parseInt(document.getElementById('r-age').value||'0',10)||null}}})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r);document.getElementById('r-from').value='';loadRules();});};
 document.getElementById('rules-apply-dry').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);});};
 document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails im Archiv jetzt löschen?'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);loadRules();});};
 refresh();loadRules();setInterval(refresh,15000);
