@@ -1,4 +1,4 @@
-/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Auto-Import */
+/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Auto-Import + Ingress path fix */
 (function () {
   var CHUNK_SIZE = 4 * 1024 * 1024;
   var LARGE_THRESHOLD = 8 * 1024 * 1024;
@@ -58,280 +58,215 @@
     var p = location.pathname.replace(/\/+$/, "");
     var i = p.indexOf("/security");
     if (i >= 0) return p.slice(0, i + "/security".length);
-    var base = document.querySelector("base");
-    var href = (base && base.getAttribute("href")) || "";
-    if (href) return href.replace(/\/+$/, "") + "/security";
-    return "security";
+    var m = p.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
+    return (m ? m[1] : "") + "/security";
   }
 
-  function ensureProgress(btn) {
-    var box = document.getElementById("ha-eml-progress");
-    if (box) return box;
-    box = document.createElement("div");
-    box.id = "ha-eml-progress";
-    box.style.cssText = "display:none;margin-top:.75rem;max-width:520px";
-    box.innerHTML =
+  function ensureProgress() {
+    var wrap = document.getElementById("ha-eml-progress-wrap");
+    if (wrap) return wrap;
+    var form = document.getElementById("emlImportForm") || document.querySelector("form");
+    if (!form) return null;
+    wrap = document.createElement("div");
+    wrap.id = "ha-eml-progress-wrap";
+    wrap.className = "mt-3";
+    wrap.style.display = "none";
+    wrap.innerHTML =
       '<div class="d-flex justify-content-between small mb-1">' +
-      '<span id="ha-eml-prog-label">Upload</span>' +
-      '<span id="ha-eml-prog-pct">0%</span></div>' +
-      '<div class="progress" style="height:1.25rem">' +
-      '<div id="ha-eml-prog-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width:0%">0%</div></div>' +
-      '<div id="ha-eml-prog-detail" class="small text-muted mt-1"></div>' +
-      '<button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="ha-eml-abort" style="display:none">Abbrechen</button>';
-    if (btn && btn.parentNode) btn.parentNode.insertBefore(box, btn.nextSibling);
-    else document.body.appendChild(box);
-    var abortBtn = document.getElementById("ha-eml-abort");
-    if (abortBtn) {
-      abortBtn.onclick = function () {
-        if (activeXhr) { try { activeXhr.abort(); } catch (e) {} activeXhr = null; }
-        window._haUploadAborted = true;
-        setProg(0, "Abgebrochen", "Upload vom Benutzer abgebrochen");
-        abortBtn.style.display = "none";
-      };
-    }
-    return box;
+      '<span id="ha-eml-progress-label">Upload</span>' +
+      '<span id="ha-eml-progress-pct">0%</span></div>' +
+      '<div class="progress" style="height:22px">' +
+      '<div id="ha-eml-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%">0%</div></div>' +
+      '<div class="small text-muted mt-1" id="ha-eml-progress-detail"></div>' +
+      '<button type="button" class="btn btn-sm btn-outline-danger mt-2" id="ha-eml-abort" style="display:none">Abbrechen</button>';
+    form.appendChild(wrap);
+    return wrap;
   }
 
   function setProg(pct, label, detail) {
-    var box = document.getElementById("ha-eml-progress");
-    if (!box) return;
-    box.style.display = "block";
-    pct = Math.max(0, Math.min(100, Math.round(pct)));
-    var bar = document.getElementById("ha-eml-prog-bar");
-    var pctEl = document.getElementById("ha-eml-prog-pct");
-    var lab = document.getElementById("ha-eml-prog-label");
-    var det = document.getElementById("ha-eml-prog-detail");
-    if (bar) { bar.style.width = pct + "%"; bar.textContent = pct + "%"; }
-    if (pctEl) pctEl.textContent = pct + "%";
+    var wrap = ensureProgress();
+    if (!wrap) return;
+    wrap.style.display = "block";
+    pct = Math.max(0, Math.min(100, pct || 0));
+    var bar = document.getElementById("ha-eml-progress-bar");
+    var pctEl = document.getElementById("ha-eml-progress-pct");
+    var lab = document.getElementById("ha-eml-progress-label");
+    var det = document.getElementById("ha-eml-progress-detail");
+    if (bar) { bar.style.width = pct + "%"; bar.textContent = Math.round(pct) + "%"; }
+    if (pctEl) pctEl.textContent = Math.round(pct) + "%";
     if (lab && label) lab.textContent = label;
     if (det && detail != null) det.textContent = detail;
   }
 
-  function uid() {
-    return "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-  }
-
-  function putChunk(url, uploadId, filename, idx, total, blob) {
+  function uploadChunk(file, uploadId, idx, total, onProg) {
     return new Promise(function (resolve, reject) {
+      var start = idx * CHUNK_SIZE;
+      var end = Math.min(file.size, start + CHUNK_SIZE);
+      var blob = file.slice(start, end);
       var xhr = new XMLHttpRequest();
       activeXhr = xhr;
-      xhr.open("POST", url, true);
-      xhr.timeout = 0;
+      xhr.open("POST", securityBase() + "/api/upload-chunk");
       xhr.setRequestHeader("X-Upload-Id", uploadId);
-      xhr.setRequestHeader("X-File-Name", filename);
+      xhr.setRequestHeader("X-File-Name", file.name);
       xhr.setRequestHeader("X-Chunk-Index", String(idx));
       xhr.setRequestHeader("X-Chunk-Total", String(total));
-      xhr.setRequestHeader("Content-Type", "application/octet-stream");
-      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
-      try { xhr.withCredentials = true; } catch (e) {}
+      xhr.upload.onprogress = function (e) {
+        if (!e.lengthComputable) return;
+        var done = start + e.loaded;
+        var pct = (done / file.size) * 100;
+        if (onProg) onProg(pct, done, file.size);
+      };
       xhr.onload = function () {
         activeXhr = null;
         if (xhr.status >= 200 && xhr.status < 300) {
           try { resolve(JSON.parse(xhr.responseText || "{}")); }
-          catch (e) { reject(new Error("Ungueltige Server-Antwort")); }
-        } else {
-          var msg = xhr.responseText || ("HTTP " + xhr.status);
-          try { var j = JSON.parse(xhr.responseText); if (j.message) msg = j.message; } catch (e) {}
-          reject(new Error(msg));
-        }
+          catch (e) { resolve({ ok: true }); }
+        } else reject(new Error("Chunk " + (idx + 1) + " HTTP " + xhr.status));
       };
-      xhr.onerror = function () { activeXhr = null; reject(new Error("Netzwerkfehler bei Chunk " + (idx + 1))); };
+      xhr.onerror = function () { activeXhr = null; reject(new Error("Netzwerkfehler Chunk " + (idx + 1))); };
       xhr.onabort = function () { activeXhr = null; reject(new Error("abgebrochen")); };
       xhr.send(blob);
     });
   }
 
-  async function chunkedUpload(file, btn) {
-    window._haUploadAborted = false;
-    var uploadId = uid();
+  async function chunkedUpload(file, onProg) {
     var total = Math.ceil(file.size / CHUNK_SIZE) || 1;
-    var url = securityBase().replace(/\/+$/, "") + "/api/upload-chunk";
-    var abortEl = document.getElementById("ha-eml-abort");
-    if (abortEl) abortEl.style.display = "inline-block";
-    var bar = document.getElementById("ha-eml-prog-bar");
-    if (bar) { bar.classList.remove("bg-danger", "bg-success"); bar.classList.add("bg-primary"); }
-    setProg(0, "Chunk-Upload startet...", file.name + " (" + fmtSize(file.size) + "), " + total + " Teile");
-    var sent = 0;
+    var uploadId = (Math.random().toString(16).slice(2) + Date.now().toString(16)).slice(0, 16);
+    var last = null;
     for (var i = 0; i < total; i++) {
-      if (window._haUploadAborted) throw new Error("abgebrochen");
-      var startB = i * CHUNK_SIZE;
-      var end = Math.min(file.size, startB + CHUNK_SIZE);
-      var blob = file.slice(startB, end);
-      setProg((sent / file.size) * 100, "Hochladen... Teil " + (i + 1) + "/" + total, fmtSize(sent) + " / " + fmtSize(file.size));
-      btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload ' + Math.round((sent / file.size) * 100) + "%";
-      var result = await putChunk(url, uploadId, file.name, i, total, blob);
-      if (!result.ok) throw new Error(result.message || "Chunk fehlgeschlagen");
-      sent = end;
-      uploadId = result.upload_id || uploadId;
-      setProg((sent / file.size) * 100, "Hochladen... Teil " + (i + 1) + "/" + total, fmtSize(sent) + " / " + fmtSize(file.size));
-      btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload ' + Math.round((sent / file.size) * 100) + "%";
-      if (result.done) {
-        if (bar) { bar.classList.remove("bg-primary"); bar.classList.add("bg-success"); }
-        setProg(100, "Upload fertig – starte Import...", result.message || ("Gespeichert: /data/import/" + (result.filename || file.name)));
-        if (abortEl) abortEl.style.display = "none";
-        btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Import starten...';
-        var sel = document.getElementById("accountSelect");
-        var accountId = sel && sel.value ? parseInt(sel.value, 10) : 0;
-        var fname = result.filename || file.name;
-        var importUrl = securityBase().replace(/\/+$/, "") + "/api/import-local";
-        try {
-          var ir = await fetch(importUrl, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
-            body: JSON.stringify({ file: "/data/import/" + fname, account_id: accountId })
-          });
-          var ij = {};
-          try { ij = await ir.json(); } catch (e) {}
-          if (ij && ij.ok) {
-            setProg(100, "Import gestartet", ij.message || "Job laeuft im Hintergrund");
-            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Import gestartet';
-            btn.disabled = false;
-            var note = document.getElementById("ha-eml-done-note");
-            if (!note) {
-              note = document.createElement("div");
-              note.id = "ha-eml-done-note";
-              note.className = "alert alert-success mt-3";
-              var box = document.getElementById("ha-eml-progress");
-              if (box && box.parentNode) box.parentNode.insertBefore(note, box.nextSibling);
-            }
-            if (ij.jobs_visible !== false) {
-              note.innerHTML = "<strong>Upload + Import-Job gestartet.</strong> Datei <code>/data/import/" +
-                fname + "</code>. Weiterleitung zu <a href=\"Emails/Jobs\">EML-Import-Jobs</a>…";
-              var dest = ij.redirect || "Emails/Jobs";
-              if (dest.charAt(0) === "/") dest = dest.replace(/^\//, "");
-              setTimeout(function () { window.location.href = dest; }, 1200);
-            } else {
-              note.className = "alert alert-warning mt-3";
-              note.innerHTML = "<strong>Import laeuft (CLI).</strong> " + (ij.message || "") +
-                " Mails erscheinen im <a href=\"Emails\">Archiv</a>; unter Jobs nur bei Web-Import.";
-              setTimeout(function () { window.location.href = "Emails"; }, 2500);
-            }
-          } else {
-            setProg(100, "Upload ok – Import manuell noetig", (ij && ij.message) || "Import-API fehlgeschlagen");
-            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Datei im Import-Ordner';
-            btn.disabled = false;
-          }
-        } catch (e) {
-          setProg(100, "Upload ok – Import-Start fehlgeschlagen", String(e));
-          btn.disabled = false;
-          btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Datei im Import-Ordner';
-        }
-        return result;
-      }
+      last = await uploadChunk(file, uploadId, i, total, onProg);
+      if (last && last.ok === false) throw new Error(last.message || "Chunk fehlgeschlagen");
     }
-    throw new Error("Upload unvollstaendig");
+    return last;
   }
 
-  function singleXhrUpload(form, file, btn) {
-    return new Promise(function (resolve, reject) {
-      var fd = new FormData(form);
-      var xhr = new XMLHttpRequest();
-      activeXhr = xhr;
-      xhr.timeout = 0;
-      var abortEl = document.getElementById("ha-eml-abort");
-      if (abortEl) abortEl.style.display = "inline-block";
-      setProg(0, "Upload startet...", file.name + " (" + fmtSize(file.size) + ")");
-      xhr.upload.onprogress = function (e) {
-        if (e.lengthComputable) {
-          var pct = e.total ? (e.loaded / e.total) * 100 : 0;
-          setProg(pct, "Hochladen...", fmtSize(e.loaded) + " / " + fmtSize(e.total));
-          btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload ' + Math.round(pct) + "%";
-        }
-      };
-      xhr.upload.onload = function () {
-        setProg(100, "Upload fertig – Server verarbeitet...", "Datei vollstaendig uebertragen");
-        btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Verarbeiten...';
-      };
-      xhr.onerror = function () { activeXhr = null; reject(new Error("Netzwerkfehler")); };
-      xhr.onabort = function () { activeXhr = null; reject(new Error("abgebrochen")); };
-      xhr.onload = function () {
-        activeXhr = null;
-        if (abortEl) abortEl.style.display = "none";
-        if (xhr.status >= 200 && xhr.status < 400) {
-          var loc = xhr.getResponseHeader("Location");
-          if (loc) { window.location.href = loc; resolve(); return; }
-          var ct = xhr.getResponseHeader("Content-Type") || "";
-          if (ct.indexOf("text/html") >= 0 && xhr.responseText) {
-            document.open(); document.write(xhr.responseText); document.close(); resolve(); return;
-          }
-          window.location.reload(); resolve();
-        } else reject(new Error("HTTP " + xhr.status));
-      };
-      xhr.open((form.getAttribute("method") || "POST").toUpperCase(), form.getAttribute("action") || window.location.href, true);
-      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
-      try { xhr.withCredentials = true; } catch (e) {}
-      xhr.send(fd);
-    });
+  function accountId() {
+    var el = document.getElementById("accountSelect") || document.querySelector("[name=TargetAccountId]");
+    return el ? el.value : "";
+  }
+
+  function startImportLocal(pathOrName) {
+    return fetch(securityBase() + "/api/import-local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ file: pathOrName, account_id: parseInt(accountId() || "0", 10) || 0 })
+    }).then(function (r) { return r.json(); });
   }
 
   function fixEml() {
     try {
-      var input = document.getElementById("emlFileInput");
-      if (!input) return;
       var form = document.getElementById("emlImportForm");
-      var btn = document.getElementById("submitBtn");
-      if (!form || !btn) return;
-      if (!document.getElementById("ha-eml-upload-btn")) {
-        var wrap = document.createElement("div");
-        wrap.className = "mb-2 d-flex align-items-center gap-2 flex-wrap";
-        var uBtn = document.createElement("button");
-        uBtn.type = "button"; uBtn.id = "ha-eml-upload-btn"; uBtn.className = "btn btn-outline-primary";
-        uBtn.innerHTML = '<i class="bi bi-folder2-open me-1"></i>Datei waehlen (ZIP mit EMLs)';
-        uBtn.onclick = function () { input.click(); };
-        var nameSpan = document.createElement("span");
-        nameSpan.id = "ha-eml-filename"; nameSpan.className = "text-muted small"; nameSpan.style.display = "none";
-        input.style.position = "absolute"; input.style.width = "1px"; input.style.height = "1px";
-        input.style.opacity = "0"; input.style.overflow = "hidden";
-        input.parentNode.insertBefore(wrap, input);
-        wrap.appendChild(uBtn); wrap.appendChild(nameSpan); wrap.appendChild(input);
+      var input = document.getElementById("emlFileInput") || (form && form.querySelector('input[type=file]'));
+      if (!form || !input) return;
+      if (form.getAttribute("data-ha-eml-fixed") === "1") return;
+      form.setAttribute("data-ha-eml-fixed", "1");
+
+      var btn = form.querySelector('button[type=submit]') || form.querySelector("button.btn-primary");
+      if (!btn) {
+        btn = document.createElement("button");
+        btn.type = "submit";
+        btn.className = "btn btn-primary";
+        btn.textContent = "Import starten";
+        form.appendChild(btn);
       }
-      ensureProgress(btn);
-      function update() {
-        var hasFile = input.files && input.files.length > 0;
-        var sel = document.getElementById("accountSelect");
-        var hasAcc = sel && sel.value;
-        btn.disabled = !(hasFile && hasAcc);
-        var ns = document.getElementById("ha-eml-filename");
-        if (ns) {
-          if (hasFile) { ns.textContent = input.files[0].name + " (" + fmtSize(input.files[0].size) + ")"; ns.style.display = "inline"; }
-          else ns.style.display = "none";
-        }
-      }
-      if (!input._haBound) {
-        input._haBound = true;
-        input.addEventListener("change", update);
-        var sel = document.getElementById("accountSelect");
-        if (sel) sel.addEventListener("change", update);
-      }
-      update();
-      if (form._haXhrBound) return;
-      form._haXhrBound = true;
-      form.addEventListener("submit", function (ev) {
-        ev.preventDefault(); ev.stopPropagation();
-        if (!input.files || !input.files.length) return;
-        var file = input.files[0];
+      ensureProgress();
+
+      form.addEventListener("submit", function (e) {
+        var file = input.files && input.files[0];
+        if (!file) return;
+        if (file.size < LARGE_THRESHOLD) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
         var origHtml = btn.innerHTML;
         btn.disabled = true;
-        var bar = document.getElementById("ha-eml-prog-bar");
-        if (bar) { bar.classList.remove("bg-danger", "bg-success"); bar.classList.add("bg-primary"); }
-        var run = file.size >= LARGE_THRESHOLD ? chunkedUpload(file, btn) : singleXhrUpload(form, file, btn);
-        Promise.resolve(run).catch(function (err) {
+        btn.innerHTML = "Hochladen…";
+        setProg(0, "Upload", "0 / " + fmtSize(file.size));
+        var abortEl = document.getElementById("ha-eml-abort");
+        if (abortEl) {
+          abortEl.style.display = "inline-block";
+          abortEl.onclick = function () {
+            try { if (activeXhr) activeXhr.abort(); } catch (err) {}
+          };
+        }
+
+        chunkedUpload(file, function (pct, done, total) {
+          setProg(pct, "Upload " + Math.round(pct) + "%", fmtSize(done) + " / " + fmtSize(total));
+          btn.innerHTML = "Hochladen… " + Math.round(pct) + "%";
+        }).then(function (res) {
+          setProg(100, "Upload fertig", "Starte Import…");
+          var name = (res && (res.filename || res.path)) || file.name;
+          return startImportLocal(name);
+        }).then(function (imp) {
+          var bar = document.getElementById("ha-eml-progress-bar");
+          if (bar) { bar.classList.remove("progress-bar-animated"); bar.classList.add("bg-success"); }
+          setProg(100, "Import gestartet", (imp && imp.message) || "OK");
+          if (abortEl) abortEl.style.display = "none";
+          var redir = (imp && imp.redirect) || "/Emails/Jobs";
+          setTimeout(function () { window.location.href = withPrefix(redir); }, 800);
+        }).catch(function (err) {
+          var bar = document.getElementById("ha-eml-progress-bar");
           var msg = (err && err.message) || String(err);
           setProg(0, msg === "abgebrochen" ? "Abgebrochen" : "Upload fehlgeschlagen", msg);
           if (bar) { bar.classList.remove("bg-success"); bar.classList.add("bg-danger"); }
           btn.disabled = false; btn.innerHTML = origHtml;
-          var abortEl = document.getElementById("ha-eml-abort");
           if (abortEl) abortEl.style.display = "none";
         });
       }, true);
     } catch (e) {}
   }
 
+  function ingressPrefix() {
+    var m = (location.pathname || "").match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
+    return m ? m[1] : "";
+  }
+  function withPrefix(url) {
+    if (!url || typeof url !== "string") return url;
+    var p = ingressPrefix();
+    if (!p) return url;
+    if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) return url;
+    if (url.charAt(0) !== "/") return url;
+    if (url.indexOf(p) === 0) return url;
+    if (url.indexOf("/api/hassio_ingress/") === 0) return url;
+    return p + url;
+  }
+  function fixIngressPaths() {
+    var p = ingressPrefix();
+    if (!p) return;
+    document.querySelectorAll("[data-email-url]").forEach(function (el) {
+      var u = el.getAttribute("data-email-url");
+      if (u) el.setAttribute("data-email-url", withPrefix(u));
+    });
+    document.querySelectorAll('a[href^="/"]').forEach(function (a) {
+      var h = a.getAttribute("href");
+      if (h) a.setAttribute("href", withPrefix(h));
+    });
+    document.querySelectorAll("form[action^='/']").forEach(function (f) {
+      var a = f.getAttribute("action");
+      if (a) f.setAttribute("action", withPrefix(a));
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    var row = e.target && e.target.closest && e.target.closest(".email-row");
+    if (!row) return;
+    if (e.target.closest(".email-row-no-nav, a, button, input, label, .form-check")) return;
+    var url = row.getAttribute("data-email-url");
+    if (!url) return;
+    e.preventDefault();
+    e.stopPropagation();
+    window.location.href = withPrefix(url);
+  }, true);
+
   function startAll() {
+    fixIngressPaths();
     start(); fixEml();
     setTimeout(fixEml, 800);
     setTimeout(fixEml, 2500);
+    setTimeout(fixIngressPaths, 500);
+    setTimeout(fixIngressPaths, 2000);
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", startAll);
   else startAll();
