@@ -587,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = handle_chunk(hdrs, body)
                 self._json(200 if result.get("ok") else 400, result)
             except Exception as e:
-                self._json(500, {"ok": False, "message": str(e)}
+                self._json(500, {"ok": False, "message": str(e)})
             return
         self._json(404, {"error": "not found"})
 
