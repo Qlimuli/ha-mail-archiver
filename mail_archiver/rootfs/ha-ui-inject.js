@@ -1,4 +1,4 @@
-/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Auto-Import + Ingress path fix */
+/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Ingress + Mobile */
 (function () {
   var CHUNK_SIZE = 4 * 1024 * 1024;
   var LARGE_THRESHOLD = 8 * 1024 * 1024;
@@ -161,7 +161,6 @@
       if (!form || !input) return;
       if (form.getAttribute("data-ha-eml-fixed") === "1") return;
       form.setAttribute("data-ha-eml-fixed", "1");
-
       var btn = form.querySelector('button[type=submit]') || form.querySelector("button.btn-primary");
       if (!btn) {
         btn = document.createElement("button");
@@ -171,15 +170,12 @@
         form.appendChild(btn);
       }
       ensureProgress();
-
       form.addEventListener("submit", function (e) {
         var file = input.files && input.files[0];
         if (!file) return;
         if (file.size < LARGE_THRESHOLD) return;
-
         e.preventDefault();
         e.stopPropagation();
-
         var origHtml = btn.innerHTML;
         btn.disabled = true;
         btn.innerHTML = "Hochladen…";
@@ -187,11 +183,8 @@
         var abortEl = document.getElementById("ha-eml-abort");
         if (abortEl) {
           abortEl.style.display = "inline-block";
-          abortEl.onclick = function () {
-            try { if (activeXhr) activeXhr.abort(); } catch (err) {}
-          };
+          abortEl.onclick = function () { try { if (activeXhr) activeXhr.abort(); } catch (err) {} };
         }
-
         chunkedUpload(file, function (pct, done, total) {
           setProg(pct, "Upload " + Math.round(pct) + "%", fmtSize(done) + " / " + fmtSize(total));
           btn.innerHTML = "Hochladen… " + Math.round(pct) + "%";
@@ -260,7 +253,71 @@
     window.location.href = withPrefix(url);
   }, true);
 
+  function injectMobileCss() {
+    if (document.getElementById("ha-mobile-css")) return;
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) {
+      vp = document.createElement("meta");
+      vp.name = "viewport";
+      document.head.appendChild(vp);
+    }
+    vp.content = "width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover";
+    var s = document.createElement("style");
+    s.id = "ha-mobile-css";
+    s.textContent = [
+      "html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }",
+      "body { overflow-x: hidden; }",
+      "@media (max-width: 768px) {",
+      "  :root { --ha-touch: 44px; }",
+      "  nav.navbar { padding: 0.35rem 0.6rem !important; min-height: 48px !important; }",
+      "  nav.navbar .navbar-brand { font-size: 1rem !important; max-width: 55vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
+      "  nav.navbar .navbar-toggler { padding: 0.35rem 0.5rem; }",
+      "  .container, .container-fluid, main, .content, .page-content {",
+      "    padding-left: 0.75rem !important; padding-right: 0.75rem !important; }",
+      "  h1, .h1 { font-size: 1.35rem !important; margin-bottom: 0.75rem !important; }",
+      "  h2, .h2 { font-size: 1.15rem !important; }",
+      "  h3, .h3 { font-size: 1.05rem !important; }",
+      "  .row > [class*=col-] { margin-bottom: 0.65rem; }",
+      "  .card { border-radius: 0.75rem; }",
+      "  .card-body { padding: 0.85rem !important; }",
+      "  .dashboard-stat, .stat-card, .card .display-4, .card .display-5, .card .fs-1, .card h2.display-6 {",
+      "    font-size: 1.6rem !important; line-height: 1.15 !important; }",
+      "  .email-card-mobile, .email-row.card, .card.email-card-mobile {",
+      "    margin-bottom: 0.65rem !important; border-radius: 0.75rem !important; }",
+      "  .email-card-mobile .card-body, .email-row.card .card-body { padding: 0.85rem !important; }",
+      "  .email-card-mobile .btn, .email-card-actions .btn { min-height: var(--ha-touch); font-size: 0.95rem; }",
+      "  .btn { min-height: 42px; border-radius: 0.55rem; }",
+      "  .btn-sm { min-height: 38px; }",
+      "  .btn-group-vertical > .btn, .d-grid .btn, .btn.w-100 { margin-bottom: 0.4rem; }",
+      "  .form-control, .form-select, input.form-control, select.form-select {",
+      "    min-height: 42px; font-size: 16px !important; }",
+      "  label, .form-label { font-size: 0.9rem; }",
+      "  .table-responsive { -webkit-overflow-scrolling: touch; }",
+      "  table.table { font-size: 0.85rem; }",
+      "  footer, .footer { font-size: 0.7rem !important; padding: 0.4rem 0.5rem !important;",
+      "    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
+      "  .offcanvas, .navbar-collapse { max-width: 88vw; }",
+      "  .navbar-nav .nav-link { padding: 0.7rem 1rem !important; font-size: 1rem; min-height: var(--ha-touch);",
+      "    display: flex; align-items: center; }",
+      "  .badge { font-size: 0.75rem; }",
+      "  #ha-eml-progress-wrap .progress { height: 26px !important; }",
+      "}",
+      "@media (max-width: 400px) {",
+      "  h1, .h1 { font-size: 1.2rem !important; }",
+      "  .container, .container-fluid, main { padding-left: 0.55rem !important; padding-right: 0.55rem !important; }",
+      "  .card-body { padding: 0.7rem !important; }",
+      "}",
+      "@supports (padding: max(0px)) {",
+      "  body { padding-left: max(0px, env(safe-area-inset-left));",
+      "         padding-right: max(0px, env(safe-area-inset-right)); }",
+      "  footer, .footer { padding-bottom: max(0.4rem, env(safe-area-inset-bottom)) !important; }",
+      "}"
+    ].join("\n");
+    document.head.appendChild(s);
+  }
+
   function startAll() {
+    injectMobileCss();
     fixIngressPaths();
     start(); fixEml();
     setTimeout(fixEml, 800);
