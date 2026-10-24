@@ -1,9 +1,12 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.8**
+Version **1.3.9**
 
-## 1.3.8 – Sidebar-Panel für alle Benutzer
+## 1.3.9 – Mailregeln: Mindestalter
 
-- `panel_admin: false` – der Eintrag **Mail** in der HA-Sidebar ist auch für Nicht-Admins sichtbar
+Feld **Tage**: Nur Mails **älter als X Tage** werden gelöscht (Empfangsdatum).
 
-Add-on **1.3.8** neu bauen und HA ggf. neu laden.
+- leer / 0 = kein Altersfilter
+- z.B. 30 = nur älter als 30 Tage
+
+Add-on **1.3.9** neu bauen.
