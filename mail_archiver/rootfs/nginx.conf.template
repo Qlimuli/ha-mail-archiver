@@ -24,20 +24,19 @@ http {
 
     # Short tag only – full logic in /ha-ui-inject.js (avoids nginx "too long parameter")
     map $host $ha_sec_inject {
-        default '<script src="ha-ui-inject.js" defer></script>';
+        default '<script src="ha-ui-inject.js?v=136" defer></script>';
     }
 
     server {
         listen 5000 default_server;
         server_name _;
 
-        # Static UI inject (direct + HA ingress path)
         location = /ha-ui-inject.js {
             alias /ha-ui-inject.js;
             default_type application/javascript;
             add_header Cache-Control "no-store";
         }
-        location ~ ^/api/hassio_ingress/[^/]+/ha-ui-inject\.js$ {
+        location ~ ^/api/hassio_ingress/[^/]+/ha-ui-inject\.js(?:\?.*)?$ {
             alias /ha-ui-inject.js;
             default_type application/javascript;
             add_header Cache-Control "no-store";
@@ -113,7 +112,6 @@ http {
         location / {
             proxy_pass http://127.0.0.1:5001;
             proxy_http_version 1.1;
-
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -124,19 +122,15 @@ http {
             proxy_set_header Accept-Encoding "";
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection $connection_upgrade;
-
             proxy_buffering off;
             proxy_request_buffering off;
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
-
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
-
             proxy_cookie_path / $ingress_prefix/;
-
             sub_filter_once off;
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
