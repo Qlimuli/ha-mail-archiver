@@ -1,11 +1,11 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.1**
+Version **1.3.2**
 
-## 1.3.1 – Echter Import-Job nach Chunk-Upload
+## 1.3.2 – Import/Temp-Bereinigung
 
-- Nach Chunk-Upload: Datei aus `/data/import` wird intern an `MailAccounts/ImportEml` gepostet (Session + Anti-Forgery)
-- Job erscheint unter **EML-Import-Jobs**
-- CLI nur als Fallback
+- Nach erfolgreichem Import: Quelldatei unter `/data/import` wird gelöscht
+- Beim Add-on-Start: `.upload_tmp`, nginx-Body-Temps und `.part`-Reste werden bereinigt
+- API `POST /security/api/cleanup-import` (optional `{"all":true}` für alle Dateien in `/data/import`)
 
-Add-on **1.3.1** neu bauen, Strg+F5.
+Add-on **1.3.2** neu bauen.
