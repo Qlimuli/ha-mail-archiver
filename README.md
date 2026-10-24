@@ -1,11 +1,16 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.6**
+Version **1.3.7**
 
-## 1.3.6 – Mobile in HA Companion App
+## 1.3.7 – Mailregeln (Absender → Auto-Löschen)
 
-- Cache-Bust `ha-ui-inject.js?v=136` (WebView-Cache der HA-App)
-- Mobile-Styles greifen unter **Ingress** / Touch / ≤992px
-- Aggressivere Abstände mit `!important`
+Unter **Sicherheit** gibt es jetzt **Mailregeln**:
 
-Add-on **1.3.6** neu bauen. In der HA-App: Sidebar schließen, Add-on neu öffnen (ggf. App killen).
+- Regel pro Absender: enthält / exakt / Domain
+- Optional: Betreff enthält
+- Aktion: E-Mails im **lokalen Archiv** löschen
+- Vorschau, manuell anwenden, Hintergrund-Intervall (Standard 30 Min.)
+
+Hinweis: Altersbasierte Aufbewahrung weiterhin pro Konto unter *E-Mail Konten → Bearbeiten → E-Mail-Löschung* (Upstream).
+
+Add-on **1.3.7** neu bauen.
