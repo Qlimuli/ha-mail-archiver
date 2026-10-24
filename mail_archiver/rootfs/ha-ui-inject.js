@@ -185,7 +185,7 @@
           try { ij = await ir.json(); } catch (e) {}
           if (ij && ij.ok) {
             setProg(100, "Import gestartet", ij.message || "Job laeuft im Hintergrund");
-            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Import-Job gestartet';
+            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Import gestartet';
             btn.disabled = false;
             var note = document.getElementById("ha-eml-done-note");
             if (!note) {
@@ -195,9 +195,18 @@
               var box = document.getElementById("ha-eml-progress");
               if (box && box.parentNode) box.parentNode.insertBefore(note, box.nextSibling);
             }
-            note.innerHTML = "<strong>Upload + Import gestartet.</strong> Datei <code>/data/import/" +
-              fname + "</code>. Status unter <a href=\"Emails/Jobs\">EML-Import-Jobs</a>.";
-            setTimeout(function () { window.location.href = "Emails/Jobs"; }, 1500);
+            if (ij.jobs_visible !== false) {
+              note.innerHTML = "<strong>Upload + Import-Job gestartet.</strong> Datei <code>/data/import/" +
+                fname + "</code>. Weiterleitung zu <a href=\"Emails/Jobs\">EML-Import-Jobs</a>…";
+              var dest = ij.redirect || "Emails/Jobs";
+              if (dest.charAt(0) === "/") dest = dest.replace(/^\//, "");
+              setTimeout(function () { window.location.href = dest; }, 1200);
+            } else {
+              note.className = "alert alert-warning mt-3";
+              note.innerHTML = "<strong>Import laeuft (CLI).</strong> " + (ij.message || "") +
+                " Mails erscheinen im <a href=\"Emails\">Archiv</a>; unter Jobs nur bei Web-Import.";
+              setTimeout(function () { window.location.href = "Emails"; }, 2500);
+            }
           } else {
             setProg(100, "Upload ok – Import manuell noetig", (ij && ij.message) || "Import-API fehlgeschlagen");
             btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Datei im Import-Ordner';
