@@ -92,14 +92,20 @@ http {
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
             sub_filter 'href="/' 'href="$ingress_prefix/';
-            sub_filter "href='/'" "href='$ingress_prefix/";
+            sub_filter "href='/" "href='$ingress_prefix/";
             sub_filter 'src="/' 'src="$ingress_prefix/';
-            sub_filter "src='/'" "src='$ingress_prefix/";
+            sub_filter "src='/" "src='$ingress_prefix/";
             sub_filter 'action="/' 'action="$ingress_prefix/';
-            sub_filter "action='/'" "action='$ingress_prefix/";
+            sub_filter "action='/" "action='$ingress_prefix/";
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
+            sub_filter 'data-email-url="/' 'data-email-url="$ingress_prefix/';
+            sub_filter "data-email-url='/" "data-email-url='$ingress_prefix/";
+            sub_filter 'window.location.href="/' 'window.location.href="$ingress_prefix/';
+            sub_filter "window.location.href='/" "window.location.href='$ingress_prefix/";
+            sub_filter 'window.location="/' 'window.location="$ingress_prefix/';
+            sub_filter "window.location='/" "window.location='$ingress_prefix/";
             sub_filter '</body>' '$ha_sec_inject</body>';
             sub_filter '</BODY>' '$ha_sec_inject</BODY>';
         }
@@ -135,14 +141,20 @@ http {
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
             sub_filter 'href="/' 'href="$ingress_prefix/';
-            sub_filter "href='/'" "href='$ingress_prefix/";
+            sub_filter "href='/" "href='$ingress_prefix/";
             sub_filter 'src="/' 'src="$ingress_prefix/';
-            sub_filter "src='/'" "src='$ingress_prefix/";
+            sub_filter "src='/" "src='$ingress_prefix/";
             sub_filter 'action="/' 'action="$ingress_prefix/';
-            sub_filter "action='/'" "action='$ingress_prefix/";
+            sub_filter "action='/" "action='$ingress_prefix/";
             sub_filter 'url(/' 'url($ingress_prefix/';
             sub_filter 'fetch("/' 'fetch("$ingress_prefix/';
             sub_filter "fetch('/" "fetch('$ingress_prefix/";
+            sub_filter 'data-email-url="/' 'data-email-url="$ingress_prefix/';
+            sub_filter "data-email-url='/" "data-email-url='$ingress_prefix/";
+            sub_filter 'window.location.href="/' 'window.location.href="$ingress_prefix/';
+            sub_filter "window.location.href='/" "window.location.href='$ingress_prefix/";
+            sub_filter 'window.location="/' 'window.location="$ingress_prefix/';
+            sub_filter "window.location='/" "window.location='$ingress_prefix/";
             sub_filter '</body>' '$ha_sec_inject</body>';
             sub_filter '</BODY>' '$ha_sec_inject</BODY>';
         }
