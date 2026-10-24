@@ -1,16 +1,9 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.7**
+Version **1.3.8**
 
-## 1.3.7 – Mailregeln (Absender → Auto-Löschen)
+## 1.3.8 – Sidebar-Panel für alle Benutzer
 
-Unter **Sicherheit** gibt es jetzt **Mailregeln**:
+- `panel_admin: false` – der Eintrag **Mail** in der HA-Sidebar ist auch für Nicht-Admins sichtbar
 
-- Regel pro Absender: enthält / exakt / Domain
-- Optional: Betreff enthält
-- Aktion: E-Mails im **lokalen Archiv** löschen
-- Vorschau, manuell anwenden, Hintergrund-Intervall (Standard 30 Min.)
-
-Hinweis: Altersbasierte Aufbewahrung weiterhin pro Konto unter *E-Mail Konten → Bearbeiten → E-Mail-Löschung* (Upstream).
-
-Add-on **1.3.7** neu bauen.
+Add-on **1.3.8** neu bauen und HA ggf. neu laden.
