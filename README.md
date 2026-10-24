@@ -1,15 +1,11 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.0**
+Version **1.3.1**
 
-## 1.3.0 – Import-Job nach Chunk-Upload
+## 1.3.1 – Echter Import-Job nach Chunk-Upload
 
-- Nach großem ZIP-Upload wird automatisch `dotnet … --import-eml` gestartet
-- Es erscheint wie bei kleinen Dateien ein Eintrag unter **EML-Import-Jobs**
-- Weiterleitung zur Jobs-Seite
+- Nach Chunk-Upload: Datei aus `/data/import` wird intern an `MailAccounts/ImportEml` gepostet (Session + Anti-Forgery)
+- Job erscheint unter **EML-Import-Jobs**
+- CLI nur als Fallback
 
-Add-on **1.3.0** neu bauen, Strg+F5.
-
-## 1.2.9 – Chunk-Upload
-
-- Große Dateien in 4-MB-Teilen (HA-Ingress)
+Add-on **1.3.1** neu bauen, Strg+F5.
