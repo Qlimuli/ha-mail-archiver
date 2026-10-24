@@ -1,4 +1,4 @@
-/*! ha-mail-archiver UI inject: Sicherheit-Navbar + Chunk-Upload-Progress */
+/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Auto-Import */
 (function () {
   var CHUNK_SIZE = 4 * 1024 * 1024;
   var LARGE_THRESHOLD = 8 * 1024 * 1024;
@@ -167,22 +167,47 @@
       btn.innerHTML = '<i class="bi bi-cloud-upload me-2"></i>Upload ' + Math.round((sent / file.size) * 100) + "%";
       if (result.done) {
         if (bar) { bar.classList.remove("bg-primary"); bar.classList.add("bg-success"); }
-        setProg(100, "Upload fertig", result.message || ("Gespeichert: /data/import/" + (result.filename || file.name)));
+        setProg(100, "Upload fertig – starte Import...", result.message || ("Gespeichert: /data/import/" + (result.filename || file.name)));
         if (abortEl) abortEl.style.display = "none";
-        btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Fertig – Datei im Import-Ordner';
-        btn.disabled = false;
-        var note = document.getElementById("ha-eml-done-note");
-        if (!note) {
-          note = document.createElement("div");
-          note.id = "ha-eml-done-note";
-          note.className = "alert alert-success mt-3";
-          var box = document.getElementById("ha-eml-progress");
-          if (box && box.parentNode) box.parentNode.insertBefore(note, box.nextSibling);
+        btn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Import starten...';
+        var sel = document.getElementById("accountSelect");
+        var accountId = sel && sel.value ? parseInt(sel.value, 10) : 0;
+        var fname = result.filename || file.name;
+        var importUrl = securityBase().replace(/\/+$/, "") + "/api/import-local";
+        try {
+          var ir = await fetch(importUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest" },
+            body: JSON.stringify({ file: "/data/import/" + fname, account_id: accountId })
+          });
+          var ij = {};
+          try { ij = await ir.json(); } catch (e) {}
+          if (ij && ij.ok) {
+            setProg(100, "Import gestartet", ij.message || "Job laeuft im Hintergrund");
+            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Import-Job gestartet';
+            btn.disabled = false;
+            var note = document.getElementById("ha-eml-done-note");
+            if (!note) {
+              note = document.createElement("div");
+              note.id = "ha-eml-done-note";
+              note.className = "alert alert-success mt-3";
+              var box = document.getElementById("ha-eml-progress");
+              if (box && box.parentNode) box.parentNode.insertBefore(note, box.nextSibling);
+            }
+            note.innerHTML = "<strong>Upload + Import gestartet.</strong> Datei <code>/data/import/" +
+              fname + "</code>. Status unter <a href=\"Emails/Jobs\">EML-Import-Jobs</a>.";
+            setTimeout(function () { window.location.href = "Emails/Jobs"; }, 1500);
+          } else {
+            setProg(100, "Upload ok – Import manuell noetig", (ij && ij.message) || "Import-API fehlgeschlagen");
+            btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Datei im Import-Ordner';
+            btn.disabled = false;
+          }
+        } catch (e) {
+          setProg(100, "Upload ok – Import-Start fehlgeschlagen", String(e));
+          btn.disabled = false;
+          btn.innerHTML = '<i class="bi bi-check2-circle me-2"></i>Datei im Import-Ordner';
         }
-        note.innerHTML = "<strong>Upload abgeschlossen.</strong> Datei unter <code>/data/import/" +
-          (result.filename || file.name) + "</code> (" + fmtSize(result.size || file.size) +
-          "). Bitte Import ueber <strong>Local Import / Import-Ordner</strong> starten. " +
-          "Grosse Dateien werden in 4-MB-Teilen gesendet (HA-Ingress).";
         return result;
       }
     }
