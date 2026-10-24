@@ -262,58 +262,61 @@
       document.head.appendChild(vp);
     }
     vp.content = "width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover";
+
+    var underIngress = /\/api\/hassio_ingress\//.test(location.pathname || "");
+    var coarse = false, narrow = false;
+    try { coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch (e) {}
+    try { narrow = !!(window.matchMedia && window.matchMedia("(max-width: 992px)").matches); } catch (e) {}
+    var forceMobile = underIngress || coarse || narrow || (typeof screen !== "undefined" && screen.width && screen.width <= 992);
+
     var s = document.createElement("style");
     s.id = "ha-mobile-css";
-    s.textContent = [
-      "html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }",
-      "body { overflow-x: hidden; }",
-      "@media (max-width: 768px) {",
-      "  :root { --ha-touch: 44px; }",
-      "  nav.navbar { padding: 0.35rem 0.6rem !important; min-height: 48px !important; }",
-      "  nav.navbar .navbar-brand { font-size: 1rem !important; max-width: 55vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
-      "  nav.navbar .navbar-toggler { padding: 0.35rem 0.5rem; }",
-      "  .container, .container-fluid, main, .content, .page-content {",
-      "    padding-left: 0.75rem !important; padding-right: 0.75rem !important; }",
-      "  h1, .h1 { font-size: 1.35rem !important; margin-bottom: 0.75rem !important; }",
-      "  h2, .h2 { font-size: 1.15rem !important; }",
-      "  h3, .h3 { font-size: 1.05rem !important; }",
-      "  .row > [class*=col-] { margin-bottom: 0.65rem; }",
-      "  .card { border-radius: 0.75rem; }",
-      "  .card-body { padding: 0.85rem !important; }",
-      "  .dashboard-stat, .stat-card, .card .display-4, .card .display-5, .card .fs-1, .card h2.display-6 {",
-      "    font-size: 1.6rem !important; line-height: 1.15 !important; }",
-      "  .email-card-mobile, .email-row.card, .card.email-card-mobile {",
-      "    margin-bottom: 0.65rem !important; border-radius: 0.75rem !important; }",
-      "  .email-card-mobile .card-body, .email-row.card .card-body { padding: 0.85rem !important; }",
-      "  .email-card-mobile .btn, .email-card-actions .btn { min-height: var(--ha-touch); font-size: 0.95rem; }",
-      "  .btn { min-height: 42px; border-radius: 0.55rem; }",
-      "  .btn-sm { min-height: 38px; }",
-      "  .btn-group-vertical > .btn, .d-grid .btn, .btn.w-100 { margin-bottom: 0.4rem; }",
-      "  .form-control, .form-select, input.form-control, select.form-select {",
-      "    min-height: 42px; font-size: 16px !important; }",
-      "  label, .form-label { font-size: 0.9rem; }",
-      "  .table-responsive { -webkit-overflow-scrolling: touch; }",
-      "  table.table { font-size: 0.85rem; }",
-      "  footer, .footer { font-size: 0.7rem !important; padding: 0.4rem 0.5rem !important;",
-      "    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }",
-      "  .offcanvas, .navbar-collapse { max-width: 88vw; }",
-      "  .navbar-nav .nav-link { padding: 0.7rem 1rem !important; font-size: 1rem; min-height: var(--ha-touch);",
-      "    display: flex; align-items: center; }",
-      "  .badge { font-size: 0.75rem; }",
-      "  #ha-eml-progress-wrap .progress { height: 26px !important; }",
-      "}",
-      "@media (max-width: 400px) {",
-      "  h1, .h1 { font-size: 1.2rem !important; }",
-      "  .container, .container-fluid, main { padding-left: 0.55rem !important; padding-right: 0.55rem !important; }",
-      "  .card-body { padding: 0.7rem !important; }",
-      "}",
-      "@supports (padding: max(0px)) {",
-      "  body { padding-left: max(0px, env(safe-area-inset-left));",
-      "         padding-right: max(0px, env(safe-area-inset-right)); }",
-      "  footer, .footer { padding-bottom: max(0.4rem, env(safe-area-inset-bottom)) !important; }",
+    var css = [
+      "html{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}",
+      "body{overflow-x:hidden!important;max-width:100vw!important}"
+    ];
+    if (forceMobile) {
+      css.push(
+        "nav.navbar{padding:.3rem .55rem!important;min-height:46px!important}",
+        "nav.navbar .navbar-brand{font-size:.95rem!important;max-width:50vw!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}",
+        "nav.navbar .navbar-toggler{padding:.3rem .45rem!important}",
+        ".container,.container-fluid,main,.content,.page-content,.container-lg,.container-md,.container-sm{padding-left:.65rem!important;padding-right:.65rem!important;max-width:100%!important}",
+        "h1,.h1{font-size:1.25rem!important;margin-bottom:.6rem!important;line-height:1.25!important}",
+        "h2,.h2{font-size:1.1rem!important}",
+        "h3,.h3{font-size:1rem!important}",
+        ".row>[class*=col-]{margin-bottom:.55rem!important;padding-left:.4rem!important;padding-right:.4rem!important}",
+        ".card{border-radius:.7rem!important}",
+        ".card-body{padding:.75rem!important}",
+        ".card .display-4,.card .display-5,.card .fs-1,.card .fs-2,.card h2,.card .display-6{font-size:1.45rem!important;line-height:1.15!important}",
+        ".email-card-mobile,.email-row.card,.card.mb-3{margin-bottom:.55rem!important;border-radius:.7rem!important}",
+        ".email-card-mobile .card-body,.email-row.card .card-body{padding:.75rem!important}",
+        ".email-card-mobile .btn,.email-card-actions .btn,.btn{min-height:42px!important;border-radius:.5rem!important}",
+        ".btn-sm{min-height:38px!important}",
+        ".btn.w-100,.d-grid .btn{margin-bottom:.35rem!important}",
+        ".form-control,.form-select,input.form-control,select.form-select,textarea.form-control{min-height:42px!important;font-size:16px!important}",
+        "label,.form-label{font-size:.88rem!important}",
+        ".table-responsive{-webkit-overflow-scrolling:touch;max-width:100%}",
+        "table.table{font-size:.82rem!important}",
+        "footer,.footer{font-size:.65rem!important;padding:.35rem .45rem!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}",
+        ".navbar-nav .nav-link{padding:.65rem .9rem!important;font-size:.98rem!important;min-height:44px!important;display:flex!important;align-items:center!important}",
+        ".offcanvas{max-width:86vw!important}",
+        ".badge{font-size:.72rem!important}",
+        "#ha-eml-progress-wrap .progress{height:26px!important}",
+        ".row.g-3,.row.g-4{--bs-gutter-y:.55rem!important;--bs-gutter-x:.55rem!important}"
+      );
+    }
+    css.push(
+      "@supports (padding:max(0px)){",
+      "body{padding-left:max(0px,env(safe-area-inset-left))!important;padding-right:max(0px,env(safe-area-inset-right))!important}",
+      "footer,.footer{padding-bottom:max(.35rem,env(safe-area-inset-bottom))!important}",
       "}"
-    ].join("\n");
+    );
+    s.textContent = css.join("\n");
     document.head.appendChild(s);
+    try {
+      if (forceMobile) document.body.classList.add("ha-mobile");
+      if (underIngress) document.body.classList.add("ha-ingress");
+    } catch (e) {}
   }
 
   function startAll() {
