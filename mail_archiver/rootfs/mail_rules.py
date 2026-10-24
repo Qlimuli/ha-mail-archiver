@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mail rules: auto-delete archived mails by sender (and optional subject)."""
+"""Mail rules: auto-delete archived mails by sender (and optional subject/age)."""
 from __future__ import annotations
 
 import json
@@ -101,6 +101,16 @@ def _sql_escape(s: str) -> str:
     return (s or "").replace("'", "''")
 
 
+def _parse_min_age(val):
+    if val in (None, "", False):
+        return None
+    try:
+        days = int(val)
+        return days if days > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _rule_where(rule: dict):
     m = rule.get("match") or {}
     clauses = ['e."IsLocked" = false']
@@ -125,6 +135,17 @@ def _rule_where(rule: dict):
     subj = (m.get("subject_contains") or "").strip()
     if subj:
         clauses.append(f"lower(coalesce(e.\"Subject\",'')) like '%{_sql_escape(subj.lower())}%'")
+    # min_age_days: only mails older than N days (ReceivedDate)
+    min_age = m.get("min_age_days")
+    if min_age not in (None, "", 0, "0"):
+        try:
+            days = max(0, int(min_age))
+            if days > 0:
+                clauses.append(
+                    "e.\"ReceivedDate\" < (NOW() AT TIME ZONE 'UTC' - INTERVAL '%d days')" % days
+                )
+        except (TypeError, ValueError):
+            pass
     return " AND ".join(clauses)
 
 
@@ -246,6 +267,7 @@ def upsert_rule(data: dict) -> dict:
             "from_value": from_value,
             "subject_contains": (match.get("subject_contains") or data.get("subject_contains") or "").strip(),
             "account_id": match.get("account_id") if match.get("account_id") not in ("", None) else data.get("account_id"),
+            "min_age_days": _parse_min_age(match.get("min_age_days") if match.get("min_age_days") not in (None, "") else data.get("min_age_days")),
         },
         "updated": _now(),
     }
