@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Security page (Admin) + chunk upload + local import CLI trigger."""
+"""Security page + chunk upload + web ImportEml job trigger."""
 from __future__ import annotations
 
 import json
@@ -278,8 +278,13 @@ def handle_chunk(headers, body: bytes) -> dict:
     }
 
 
-def trigger_local_import(file_path: str, account_id: int) -> dict:
-    """Start upstream CLI import so a real EML-Import job appears in the UI."""
+def trigger_local_import(file_path: str, account_id: int, cookie: str = "") -> dict:
+    """Queue real EML job in running web app (Jobs UI). CLI fallback."""
+    import re
+    import urllib.request
+    import urllib.error
+    import uuid
+
     path = Path(file_path)
     if not path.is_file():
         alt = IMPORT / Path(file_path).name
@@ -294,41 +299,148 @@ def trigger_local_import(file_path: str, account_id: int) -> dict:
     if account_id < 1:
         return {"ok": False, "message": "Ungueltige account_id"}
 
-    cmd = [
-        "dotnet",
-        "MailArchiver.dll",
-        "--import-eml",
-        "--file",
-        str(path),
-        "--account-id",
-        str(account_id),
-    ]
-    cwd = "/app" if Path("/app/MailArchiver.dll").exists() else str(Path.cwd())
+    append_event("local_import_start", f"file={path.name} account_id={account_id}")
+    base = os.environ.get("MAIL_ARCHIVER_INTERNAL", "http://127.0.0.1:5001").rstrip("/")
+    import_url = base + "/MailAccounts/ImportEml"
+
+    def _cli_fallback(reason: str) -> dict:
+        append_event("local_import_cli_fallback", reason)
+        cmd = [
+            "dotnet", "MailArchiver.dll", "--import-eml",
+            "--file", str(path), "--account-id", str(account_id),
+        ]
+        cwd = "/app" if Path("/app/MailArchiver.dll").exists() else str(Path.cwd())
+        try:
+            log_path = DATA / "security" / "import-cli.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            logf = open(log_path, "a", encoding="utf-8")
+            logf.write(f"\n=== {_now()} CLI fallback {path} account={account_id} reason={reason} ===\n")
+            logf.flush()
+            proc = subprocess.Popen(cmd, cwd=cwd, stdout=logf, stderr=subprocess.STDOUT, env=os.environ.copy())
+            append_event("local_import_spawned", f"pid={proc.pid} file={path.name}")
+            return {
+                "ok": True,
+                "mode": "cli",
+                "message": (
+                    f"CLI-Import gestartet (PID {proc.pid}). "
+                    "CLI-Jobs erscheinen NICHT unter EML-Import-Jobs; "
+                    "Mails landen direkt im Archiv. Grund: " + reason
+                ),
+                "pid": proc.pid,
+                "file": path.name,
+                "account_id": account_id,
+                "jobs_visible": False,
+            }
+        except Exception as e:
+            append_event("local_import_error", str(e))
+            return {"ok": False, "message": f"CLI-Fallback fehlgeschlagen: {e} (vorher: {reason})"}
+
+    if not cookie:
+        return _cli_fallback("kein Session-Cookie")
+
     try:
-        append_event("local_import_start", f"file={path.name} account_id={account_id}")
-        log_path = DATA / "security" / "import-cli.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        logf = open(log_path, "a", encoding="utf-8")
-        logf.write(f"\n=== {_now()} import {path} account={account_id} ===\n")
-        logf.flush()
-        proc = subprocess.Popen(
-            cmd,
-            cwd=cwd,
-            stdout=logf,
-            stderr=subprocess.STDOUT,
-            env=os.environ.copy(),
+        req = urllib.request.Request(import_url, headers={
+            "Cookie": cookie,
+            "User-Agent": "ha-mail-archiver-security-ui/1.3.1",
+            "Accept": "text/html",
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+            set_cookies = resp.headers.get_all("Set-Cookie") or []
+        extra = []
+        for sc in set_cookies:
+            part = sc.split(";", 1)[0]
+            if "=" in part:
+                extra.append(part)
+        if extra:
+            cookie = cookie + "; " + "; ".join(extra)
+
+        m = re.search(r'name="__RequestVerificationToken"[^>]*value="([^"]+)"', html)
+        if not m:
+            m = re.search(r'value="([^"]+)"[^>]*name="__RequestVerificationToken"', html)
+        if not m:
+            return _cli_fallback("Anti-Forgery-Token nicht gefunden")
+        token = m.group(1)
+
+        boundary = "----HaMailArchiver" + uuid.uuid4().hex
+        file_bytes = path.read_bytes()
+        filename = path.name
+
+        def part(name: str, value: str) -> bytes:
+            return (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n"
+            ).encode("utf-8")
+
+        body = b"".join([
+            part("__RequestVerificationToken", token),
+            part("TargetAccountId", str(account_id)),
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="EmlFile"; filename="{filename}"\r\n'
+                f"Content-Type: application/zip\r\n\r\n"
+            ).encode("utf-8"),
+            file_bytes,
+            f"\r\n--{boundary}--\r\n".encode("utf-8"),
+        ])
+
+        req2 = urllib.request.Request(
+            import_url,
+            data=body,
+            method="POST",
+            headers={
+                "Cookie": cookie,
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Content-Length": str(len(body)),
+                "User-Agent": "ha-mail-archiver-security-ui/1.3.1",
+                "Accept": "text/html,application/xhtml+xml",
+            },
         )
-        append_event("local_import_spawned", f"pid={proc.pid} file={path.name}")
-        return {
-            "ok": True,
-            "message": f"Import gestartet (PID {proc.pid}) fuer {path.name}",
-            "pid": proc.pid,
-            "file": path.name,
-            "account_id": account_id,
-        }
+        try:
+            class _NoRedir(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
+            opener = urllib.request.build_opener(_NoRedir)
+            with opener.open(req2, timeout=600) as resp2:
+                status = resp2.status
+                loc = resp2.headers.get("Location") or ""
+                body_txt = resp2.read()[:500].decode("utf-8", errors="replace")
+        except urllib.error.HTTPError as he:
+            status = he.code
+            loc = he.headers.get("Location") or ""
+            try:
+                body_txt = he.read()[:500].decode("utf-8", errors="replace")
+            except Exception:
+                body_txt = ""
+
+        if status in (301, 302, 303, 307, 308) or "EmlImportStatus" in loc or "jobId" in loc:
+            append_event("local_import_web_ok", f"status={status} loc={loc}")
+            return {
+                "ok": True,
+                "mode": "web",
+                "message": f"Import-Job gestartet fuer {filename}",
+                "redirect": loc or "/Emails/Jobs",
+                "file": filename,
+                "account_id": account_id,
+                "jobs_visible": True,
+            }
+
+        if status == 200 and ("EmlImportStatus" in body_txt or "job" in body_txt.lower()):
+            append_event("local_import_web_ok", "status=200 body_hint")
+            return {
+                "ok": True,
+                "mode": "web",
+                "message": f"Import-Job gestartet fuer {filename}",
+                "redirect": "/Emails/Jobs",
+                "file": filename,
+                "account_id": account_id,
+                "jobs_visible": True,
+            }
+
+        return _cli_fallback(f"Web-POST HTTP {status}: {body_txt[:120]}")
     except Exception as e:
-        append_event("local_import_error", str(e))
-        return {"ok": False, "message": str(e)}
+        return _cli_fallback(str(e))
 
 
 HTML = """<!DOCTYPE html>
@@ -454,7 +566,8 @@ class Handler(BaseHTTPRequestHandler):
                 account_id = int(data.get("account_id") or 0)
             except (TypeError, ValueError):
                 account_id = 0
-            result = trigger_local_import(str(file_path), account_id)
+            cookie = self.headers.get("Cookie") or data.get("cookie") or ""
+            result = trigger_local_import(str(file_path), account_id, cookie=cookie)
             self._json(200 if result.get("ok") else 400, result)
             return
         if path == "/api/upload-chunk":
@@ -474,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = handle_chunk(hdrs, body)
                 self._json(200 if result.get("ok") else 400, result)
             except Exception as e:
-                self._json(500, {"ok": False, "message": str(e)})
+                self._json(500, {"ok": False, "message": str(e)}
             return
         self._json(404, {"error": "not found"})
 
