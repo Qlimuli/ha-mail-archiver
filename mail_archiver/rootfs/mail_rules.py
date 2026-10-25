@@ -227,16 +227,31 @@ def _load_all_accounts():
 
 def _parse_imap_list_folders(data):
     folders = []
-    if not data: return ["INBOX"]
+    if not data:
+        return ["INBOX"]
     for item in data:
-        if item is None: continue
+        if item is None:
+            continue
         try:
             s = item.decode("utf-8", errors="replace") if isinstance(item, (bytes, bytearray)) else str(item)
-            name = s.rsplit('"', 2)[-2] if s.count('"') >= 2 else s.split()[-1].strip()
+            name = None
+            if s.count('"') >= 2:
+                name = s.rsplit('"', 2)[-2]
+            else:
+                parts = s.split()
+                if parts:
+                    name = parts[-1].strip()
+            if not name:
+                continue
             name = name.strip().strip('"')
-            if name and name not in folders: folders.append(name)
-        except Exception: continue
-    if "INBOX" not in folders: folders.insert(0, "INBOX")
+            if "\\Noselect" in s or "\\NoSelect" in s:
+                continue
+            if name and name not in folders:
+                folders.append(name)
+        except Exception:
+            continue
+    if "INBOX" not in folders:
+        folders.insert(0, "INBOX")
     return folders or ["INBOX"]
 
 def _imap_connect(acc):
@@ -312,17 +327,26 @@ def _select_folder(M, folder):
             return False
 
 def _imap_search_criteria_in_folder(M, folder, criteria):
-    if not criteria or not _select_folder(M, folder): return []
-    try:
-        typ, data = M.uid("SEARCH", None, *criteria)
-    except Exception:
-        try: typ, data = M.uid("SEARCH", None, " ".join(str(c) for c in criteria))
-        except Exception: return []
-    if typ != "OK" or not data or not data[0]: return []
-    return data[0].split() or []
+    if not criteria or not _select_folder(M, folder):
+        return []
+    attempts = [
+        criteria,
+        [criteria[i] if i % 2 == 0 else '"%s"' % str(criteria[i]).strip('"')
+         for i in range(len(criteria))] if len(criteria) >= 2 else criteria,
+    ]
+    for crit in attempts:
+        try:
+            typ, data = M.uid("SEARCH", None, *crit)
+        except Exception:
+            try:
+                typ, data = M.uid("SEARCH", None, " ".join(str(c) for c in crit))
+            except Exception:
+                continue
+        if typ == "OK" and data and data[0]:
+            return data[0].split() or []
+    return []
 
 def _normalize_folder_list(folders):
-    """Dedupe folders; prefer Gmail All-Mail over INBOX to avoid double matches."""
     if not folders:
         return ["INBOX"]
     seen = set()
@@ -348,7 +372,7 @@ def _normalize_folder_list(folders):
             if fl in ("inbox", "posteingang"):
                 continue
             if fl.startswith("[gmail]/"):
-                if "spam" in fl or "trash" in fl or "papierkorb" in fl or "m" in fl and "ll" in fl:
+                if any(x in fl for x in ("spam", "trash", "papierkorb", "müll", "muell")):
                     out.append(f)
                 continue
             out.append(f)
@@ -373,10 +397,25 @@ def _imap_purge_rule_on_account(acc, rule, dry_run=False):
         return {"ok": False, "deleted": 0, "matched": 0, "message": "IMAP login: %s" % e,
                 "account": acc.get("name") or acc.get("email")}
     folders_hit, deleted, matched, errors = [], 0, 0, []
+    scanned_folders = []
     try:
-        typ, data = M.list()
-        folders = _parse_imap_list_folders(data if typ == "OK" else None)
+        folder_raw = []
+        for list_cmd in ("list", "lsub"):
+            try:
+                typ, data = getattr(M, list_cmd)()
+                if typ == "OK" and data:
+                    folder_raw.extend(data)
+            except Exception:
+                pass
+        try:
+            typ, data = M.list("", "*")
+            if typ == "OK" and data:
+                folder_raw.extend(data)
+        except Exception:
+            pass
+        folders = _parse_imap_list_folders(folder_raw if folder_raw else None)
         ordered = _normalize_folder_list(folders)
+        scanned_folders = list(ordered)
         for i_f, folder in enumerate(ordered):
             try:
                 write_apply_status({
@@ -430,6 +469,7 @@ def _imap_purge_rule_on_account(acc, rule, dry_run=False):
         "matched": matched,
         "dry_run": dry_run,
         "folders": folders_hit[:20],
+        "scanned_folders": scanned_folders[:30],
         "errors": errors[:8],
         "account": acc.get("name") or acc.get("email"),
         "account_id": acc.get("id"),
@@ -514,8 +554,7 @@ def apply_all_rules(dry_run=False, force=False):
             return {"ok": False, "message": "Regeln laufen bereits", "apply_running": True, "status": st}
         _apply_running = True
     write_apply_status({"running": True, "dry_run": dry_run, "phase": "start",
-        "message": "Vorschau…" if dry_run else "Löschen gestartet…", "progress": 0,
-        "rules_done": 0, "rules_total": 0, "local_deleted": 0, "remote_deleted": 0})
+        "message": "Vorschau…" if dry_run else "Löschen gestartet…", "progress": 0})
     try:
         store = load_store()
         if not store.get("enabled", True) and not dry_run:
@@ -556,7 +595,7 @@ def apply_all_rules(dry_run=False, force=False):
             remote_candidates += int(rem.get("remote_matched") or rem.get("candidates") or 0)
             for a in rem.get("accounts") or []:
                 key = str(a.get("account") or a.get("account_id") or "?")
-                row = account_map.setdefault(key, {"account": key, "remote_deleted": 0, "candidates": 0, "matched": 0, "ok": True, "errors": [], "folders": []})
+                row = account_map.setdefault(key, {"account": key, "remote_deleted": 0, "candidates": 0, "matched": 0, "ok": True, "errors": [], "folders": [], "scanned_folders": []})
                 row["remote_deleted"] += int(a.get("deleted") or 0)
                 row["candidates"] += int(a.get("matched") or a.get("candidates") or 0)
                 row["matched"] += int(a.get("matched") or 0)
@@ -564,6 +603,8 @@ def apply_all_rules(dry_run=False, force=False):
                 for e in (a.get("errors") or [])[:3]:
                     if e not in row["errors"]: row["errors"].append(str(e))
                 for f in (a.get("folders") or [])[:5]: row["folders"].append(f)
+                for sf in (a.get("scanned_folders") or [])[:15]:
+                    if sf not in row["scanned_folders"]: row["scanned_folders"].append(sf)
         summary = {"dry_run": dry_run, "rules_processed": len(results), "local_matched": local_matched,
                    "local_deleted": total if not dry_run else 0, "remote_candidates": remote_candidates,
                    "remote_deleted": remote_total, "accounts": list(account_map.values()), "rules": rule_lines}
