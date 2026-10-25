@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-"""Scan all attachment blobs (and optional email bodies) from PostgreSQL with ClamAV."""
+"""Scan email attachments (and optionally bodies) via ClamAV – incremental & low priority."""
 from __future__ import annotations
-
-import base64
-import json
-import os
-import subprocess
+import json, os, subprocess, time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    os.nice(12)
+except Exception:
+    pass
+
+SCHEMA = "public"
 DATA = Path("/data")
 STATUS = DATA / "security" / "status.json"
-SCAN_LOG = DATA / "security" / "last-scan.log"
 EVENTS = DATA / "security" / "events.jsonl"
+SCAN_LOG = DATA / "security" / "last-scan.log"
+STATE = DATA / "security" / "db_scan_state.json"
 QUAR = DATA / "quarantine"
-SCHEMA = "mail_archiver"
-TMP = Path("/tmp/mail-db-scan")
+TMP = DATA / "security" / ".scan_tmp"
+MAX_BYTES = int(os.environ.get("DB_SCAN_MAX_BYTES", str(25 * 1024 * 1024)))
+SCAN_BODIES = os.environ.get("DB_SCAN_BODIES", "false").lower() in ("1", "true", "yes", "on")
+BATCH = int(os.environ.get("DB_SCAN_BATCH", "40"))
+SLEEP_EVERY = float(os.environ.get("DB_SCAN_SLEEP", "0.15"))
+MAX_PER_RUN = int(os.environ.get("DB_SCAN_MAX_PER_RUN", "800"))
 
-MAX_BYTES = int(os.environ.get("DB_SCAN_MAX_BYTES", str(40 * 1024 * 1024)))
-SCAN_BODIES = os.environ.get("DB_SCAN_BODIES", "1") not in ("0", "false", "no")
+
+def log(msg: str) -> None:
+    print(f"[db_virus_scan] {msg}", flush=True)
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def log(msg: str) -> None:
-    line = f"[mail-archiver:db-scan] {msg}"
-    print(line, flush=True)
-    try:
-        SCAN_LOG.parent.mkdir(parents=True, exist_ok=True)
-        with SCAN_LOG.open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except Exception:
-        pass
 
 
 def event(kind: str, detail: str) -> None:
@@ -45,75 +42,36 @@ def event(kind: str, detail: str) -> None:
         pass
 
 
-def write_status(**kwargs) -> None:
-    base = {}
+def load_state() -> dict:
     try:
-        if STATUS.exists():
-            base = json.loads(STATUS.read_text(encoding="utf-8"))
-    except Exception:
-        base = {}
-    base.update(kwargs)
-    base.setdefault("quarantine_dir", str(QUAR))
-    try:
-        STATUS.parent.mkdir(parents=True, exist_ok=True)
-        STATUS.write_text(json.dumps(base, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        if STATE.exists():
+            return json.loads(STATE.read_text(encoding="utf-8"))
     except Exception:
         pass
+    return {"last_att_id": 0, "last_legacy_id": 0, "last_email_id": 0}
 
 
-def parse_conn() -> dict | None:
-    cs = os.environ.get("ConnectionStrings__DefaultConnection") or os.environ.get("CONNECTION_STRING", "")
-    if not cs:
-        return {"host": "127.0.0.1", "port": "5432", "dbname": "MailArchiver", "user": "mailuser", "password": "mailuser"}
-    parts = {}
-    for bit in cs.split(";"):
-        bit = bit.strip()
-        if not bit or "=" not in bit:
-            continue
-        k, v = bit.split("=", 1)
-        parts[k.strip().lower()] = v.strip()
-    host = parts.get("host") or parts.get("server")
-    if not host:
-        return None
-    return {
-        "host": host,
-        "port": parts.get("port", "5432"),
-        "dbname": parts.get("database") or parts.get("db", "MailArchiver"),
-        "user": parts.get("username") or parts.get("user") or "mailuser",
-        "password": parts.get("password") or "",
-    }
-
-
-def psql(sql: str, tuples_only: bool = True, timeout: int = 120) -> tuple[int, str]:
-    conn = parse_conn()
-    if not conn:
-        return 1, "keine DB-Verbindung"
-    env = os.environ.copy()
-    env["PGPASSWORD"] = conn["password"]
-    cmd = [
-        "psql", "-h", conn["host"], "-p", str(conn["port"]), "-U", conn["user"], "-d", conn["dbname"],
-        "-v", "ON_ERROR_STOP=1", "-t" if tuples_only else "-q", "-A", "-c", sql,
-    ]
+def save_state(st: dict) -> None:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
-        return r.returncode, (r.stdout or "") + (r.stderr or "")
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text(json.dumps(st), encoding="utf-8")
     except Exception as e:
-        return 1, str(e)
+        log(f"state save: {e}")
 
 
-def fetch_b64(sql: str, timeout: int = 180) -> bytes | None:
-    rc, out = psql(sql, tuples_only=True, timeout=timeout)
-    if rc != 0:
-        log(f"SQL-Fehler: {out[-200:]}")
-        return None
-    line = (out.strip().splitlines() or [""])[0].strip()
-    if not line or line.lower() == "null":
-        return b""
+def write_status(**kw) -> None:
     try:
-        return base64.b64decode(line)
-    except Exception as e:
-        log(f"Base64-Decode Fehler: {e}")
-        return None
+        STATUS.parent.mkdir(parents=True, exist_ok=True)
+        cur = {}
+        if STATUS.exists():
+            try:
+                cur = json.loads(STATUS.read_text(encoding="utf-8"))
+            except Exception:
+                cur = {}
+        cur.update(kw)
+        STATUS.write_text(json.dumps(cur, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def clamd_running() -> bool:
@@ -123,45 +81,98 @@ def clamd_running() -> bool:
         return False
 
 
-def scan_file(path: Path) -> tuple[int, str]:
-    out = ""
+def psql(sql: str, timeout: int = 120) -> tuple[int, str]:
+    env = os.environ.copy()
+    cmd = [
+        "psql", "-h", os.environ.get("DB_HOST", "127.0.0.1"),
+        "-p", os.environ.get("DB_PORT", "5432"),
+        "-U", os.environ.get("DB_USER", "mailuser"),
+        "-d", os.environ.get("DB_NAME", "MailArchiver"),
+        "-v", "ON_ERROR_STOP=1", "-t", "-A", "-F", "|", "-c", sql,
+    ]
+    env["PGPASSWORD"] = os.environ.get("DB_PASS", "mailuser")
     try:
-        if clamd_running() and subprocess.run(["which", "clamdscan"], capture_output=True).returncode == 0:
-            r = subprocess.run(
-                ["clamdscan", "--fdpass", "--no-summary", str(path)],
-                capture_output=True, text=True, timeout=300,
-            )
-            out = (r.stdout or "") + (r.stderr or "")
-        elif subprocess.run(["which", "clamscan"], capture_output=True).returncode == 0:
-            r = subprocess.run(
-                ["clamscan", "--no-summary", str(path)],
-                capture_output=True, text=True, timeout=300,
-            )
-            out = (r.stdout or "") + (r.stderr or "")
-        else:
-            return 0, "kein Scanner"
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        return r.returncode, (r.stdout or "") + (r.stderr or "")
     except Exception as e:
-        return 0, str(e)
-    return out.count("FOUND"), out
+        return 1, str(e)
+
+
+def scan_file(path: Path) -> tuple[int, str]:
+    cmds = []
+    if clamd_running():
+        cmds.append(["clamdscan", "--no-summary", "--fdpass", str(path)])
+    cmds.append(["clamscan", "--no-summary", str(path)])
+    for cmd in cmds:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            out = (r.stdout or "") + (r.stderr or "")
+            if r.returncode == 1 or "FOUND" in out:
+                return 1, out
+            if r.returncode == 0:
+                return 0, out
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            return 0, str(e)
+    return 0, "kein Scanner"
 
 
 def quarantine_bytes(data: bytes, label: str) -> str:
-    QUAR.mkdir(parents=True, exist_ok=True)
-    safe = "".join(ch if ch.isalnum() or ch in "._-+" else "_" for ch in label)[:120] or "infected.bin"
-    dest = QUAR / f"db_{_now().replace(':', '')}_{safe}"
     try:
+        QUAR.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in label)[:80]
+        dest = QUAR / f"{int(time.time())}_{safe}.bin"
         dest.write_bytes(data)
         return str(dest)
-    except Exception as e:
-        log(f"Quarantäne schreiben fehlgeschlagen: {e}")
+    except Exception:
         return ""
 
 
-def list_content_ids() -> list:
-    sql = f'SELECT c."Id", coalesce(c."Size", 0) FROM {SCHEMA}."AttachmentContents" c ORDER BY c."Id";'
+def fetch_bytes_att(content_id: int) -> bytes:
+    import base64
+    sql = f'SELECT encode(c."Content", \'base64\') FROM public."AttachmentContents" c WHERE c."Id" = {int(content_id)};'
+    rc, out = psql(sql, timeout=60)
+    if rc != 0 or not out.strip():
+        return b""
+    try:
+        return base64.b64decode(out.strip().splitlines()[0])
+    except Exception:
+        return b""
+
+
+def fetch_bytes_legacy(att_id: int) -> bytes:
+    import base64
+    sql = f'SELECT encode(a."Content", \'base64\') FROM public."EmailAttachments" a WHERE a."Id" = {int(att_id)};'
+    rc, out = psql(sql, timeout=60)
+    if rc != 0 or not out.strip():
+        return b""
+    try:
+        return base64.b64decode(out.strip().splitlines()[0])
+    except Exception:
+        return b""
+
+
+def fetch_body(email_id: int) -> bytes:
+    import base64
+    sql = f'SELECT encode(convert_to(coalesce(e."Body", \'\'), \'UTF8\'), \'base64\') FROM public."ArchivedEmails" e WHERE e."Id" = {int(email_id)};'
+    rc, out = psql(sql, timeout=60)
+    if rc != 0 or not out.strip():
+        return b""
+    try:
+        return base64.b64decode(out.strip().splitlines()[0])
+    except Exception:
+        return b""
+
+
+def list_attachment_contents(after_id: int) -> list:
+    sql = (
+        f'SELECT c."Id", coalesce(length(c."Content"), 0) FROM public."AttachmentContents" c '
+        f'WHERE c."Id" > {int(after_id)} ORDER BY c."Id" LIMIT {MAX_PER_RUN};'
+    )
     rc, out = psql(sql)
     if rc != 0:
-        log(f"AttachmentContents Liste fehlgeschlagen: {out[-200:]}")
+        log(f"AttachmentContents list fail: {out[-200:]}")
         return []
     rows = []
     for line in out.strip().splitlines():
@@ -175,15 +186,15 @@ def list_content_ids() -> list:
     return rows
 
 
-def list_legacy_attachments() -> list:
+def list_legacy_attachments(after_id: int) -> list:
     sql = (
         f'SELECT a."Id", coalesce(a."FileName", \'att.bin\'), a."ArchivedEmailId", '
-        f'coalesce(length(a."Content"), 0) FROM {SCHEMA}."EmailAttachments" a '
-        f'WHERE a."Content" IS NOT NULL AND a."AttachmentContentId" IS NULL ORDER BY a."Id";'
+        f'coalesce(length(a."Content"), 0) FROM public."EmailAttachments" a '
+        f'WHERE a."Content" IS NOT NULL AND a."AttachmentContentId" IS NULL '
+        f'AND a."Id" > {int(after_id)} ORDER BY a."Id" LIMIT {MAX_PER_RUN};'
     )
     rc, out = psql(sql)
     if rc != 0:
-        log(f"Legacy-Anhänge Liste fehlgeschlagen: {out[-200:]}")
         return []
     rows = []
     for line in out.strip().splitlines():
@@ -199,14 +210,13 @@ def list_legacy_attachments() -> list:
     return rows
 
 
-def list_emails_for_body() -> list:
+def list_emails_for_body(after_id: int) -> list:
     sql = (
-        f'SELECT e."Id", left(coalesce(e."Subject", \'\'), 80) FROM {SCHEMA}."ArchivedEmails" e '
-        f'ORDER BY e."Id";'
+        f'SELECT e."Id", left(coalesce(e."Subject", \'\'), 80) FROM public."ArchivedEmails" e '
+        f'WHERE e."Id" > {int(after_id)} ORDER BY e."Id" LIMIT {MAX_PER_RUN};'
     )
     rc, out = psql(sql, timeout=180)
     if rc != 0:
-        log(f"E-Mail-Liste fehlgeschlagen: {out[-200:]}")
         return []
     rows = []
     for line in out.strip().splitlines():
@@ -224,7 +234,7 @@ def scan_blob(data: bytes, label: str) -> int:
     if not data:
         return 0
     if len(data) > MAX_BYTES:
-        log(f"Überspringe {label} ({len(data)} bytes > Limit {MAX_BYTES})")
+        log(f"skip {label} ({len(data)} > {MAX_BYTES})")
         return 0
     TMP.mkdir(parents=True, exist_ok=True)
     path = TMP / "scan.bin"
@@ -237,117 +247,67 @@ def scan_blob(data: bytes, label: str) -> int:
     if infected:
         q = quarantine_bytes(data, label)
         detail = f"{label} FOUND → {q or 'quarantine'}"
-        log(f"TREFFER: {detail}")
+        log(f"HIT: {detail}")
         event("threat_found", detail[:500])
         try:
             with SCAN_LOG.open("a", encoding="utf-8") as f:
                 f.write(out + "\n")
         except Exception:
             pass
-    return infected
+        return 1
+    return 0
 
 
 def main() -> int:
-    log("Starte Datenbank-Virenscan (Anhänge + optional Bodies)…")
-    event("db_scan_start", "attachments+bodies" if SCAN_BODIES else "attachments")
-    QUAR.mkdir(parents=True, exist_ok=True)
-
-    contents = list_content_ids()
-    legacy = list_legacy_attachments()
-    emails = list_emails_for_body() if SCAN_BODIES else []
-
+    st = load_state()
+    log(f"start incremental (bodies={SCAN_BODIES} batch={BATCH} max={MAX_PER_RUN} after att={st.get('last_att_id')} email={st.get('last_email_id')})")
+    event("db_scan_start", f"incremental bodies={SCAN_BODIES}")
+    contents = list_attachment_contents(int(st.get("last_att_id") or 0))
+    legacy = list_legacy_attachments(int(st.get("last_legacy_id") or 0))
+    emails = list_emails_for_body(int(st.get("last_email_id") or 0)) if SCAN_BODIES else []
     total_targets = len(contents) + len(legacy) + len(emails)
-    log(f"Ziele: {len(contents)} deduplizierte Anhänge, {len(legacy)} Legacy-Anhänge, {len(emails)} E-Mail-Bodies")
-    write_status(
-        scanning=True,
-        message=f"DB-Scan gestartet ({total_targets} Ziele)",
-        current_path="database",
-        scanned_paths=0,
-        total_paths=total_targets,
-        db_scan=True,
-        infected_moved=0,
-        clamd_running=clamd_running(),
-        virus_scan_enabled=True,
-    )
-
     infected_total = 0
     done = 0
-
-    for cid, size in contents:
-        done += 1
-        label = f"AttachmentContent#{cid}"
-        write_status(
-            scanning=True, message=f"Scanne Anhang-Inhalt {done}/{total_targets}",
-            current_path=label, scanned_paths=done, total_paths=total_targets,
-            db_scan=True, infected_moved=infected_total,
-            clamd_running=clamd_running(), virus_scan_enabled=True,
-        )
-        if size and size > MAX_BYTES:
-            log(f"Überspringe {label} size={size}")
-            continue
-        data = fetch_b64(
-            f'SELECT encode(c."Content", \'base64\') FROM {SCHEMA}."AttachmentContents" c WHERE c."Id" = {cid};'
-        )
-        if data is None:
-            continue
-        infected_total += scan_blob(data, label)
-
-    for aid, fname, eid, size in legacy:
-        done += 1
-        label = f"LegacyAtt#{aid}_{fname}_email{eid}"
-        write_status(
-            scanning=True, message=f"Scanne Legacy-Anhang {done}/{total_targets}",
-            current_path=label[:200], scanned_paths=done, total_paths=total_targets,
-            db_scan=True, infected_moved=infected_total,
-            clamd_running=clamd_running(), virus_scan_enabled=True,
-        )
-        if size and size > MAX_BYTES:
-            log(f"Überspringe {label} size={size}")
-            continue
-        data = fetch_b64(
-            f'SELECT encode(a."Content", \'base64\') FROM {SCHEMA}."EmailAttachments" a WHERE a."Id" = {aid};'
-        )
-        if data is None:
-            continue
-        infected_total += scan_blob(data, label)
-
-    for eid, subj in emails:
-        done += 1
-        label = f"Email#{eid}"
-        write_status(
-            scanning=True, message=f"Scanne E-Mail-Body {done}/{total_targets}",
-            current_path=f"{label} {subj}"[:200], scanned_paths=done, total_paths=total_targets,
-            db_scan=True, infected_moved=infected_total,
-            clamd_running=clamd_running(), virus_scan_enabled=True,
-        )
-        data = fetch_b64(
-            f'SELECT encode(convert_to(coalesce(e."Body",\'\') || E\'\\n\' || coalesce(e."HtmlBody",\'\'), \'UTF8\'), \'base64\') '
-            f'FROM {SCHEMA}."ArchivedEmails" e WHERE e."Id" = {eid};'
-        )
-        if data is None or len(data) < 8:
-            continue
-        infected_total += scan_blob(data, f"{label}_{subj[:40]}")
-
-    try:
-        import shutil
-        shutil.rmtree(TMP, ignore_errors=True)
-    except Exception:
-        pass
-
-    msg = (
-        f"DB-Scan fertig – {infected_total} Treffer ({total_targets} geprüft)"
-        if infected_total
-        else f"DB-Scan fertig – keine Treffer ({total_targets} geprüft)"
-    )
-    log(msg)
-    event("db_scan_end", f"infected={infected_total} scanned={total_targets}")
     write_status(
-        scanning=False, message=msg, current_path="",
-        scanned_paths=total_targets, total_paths=total_targets,
-        last_scan=_now(), infected_moved=infected_total, db_scan=False,
+        scanning=True, message=f"DB-Scan (inkrementell) {total_targets} Ziele",
+        scanned_paths=0, total_paths=total_targets, db_scan=True,
         clamd_running=clamd_running(), virus_scan_enabled=True,
     )
-    return 0 if infected_total == 0 else 2
+    for cid, size in contents:
+        data = fetch_bytes_att(cid)
+        infected_total += scan_blob(data, f"att_content_{cid}")
+        st["last_att_id"] = max(int(st.get("last_att_id") or 0), cid)
+        done += 1
+        if done % BATCH == 0:
+            save_state(st)
+            write_status(scanning=True, message=f"DB Anhang {done}/{total_targets}", scanned_paths=done, total_paths=total_targets, db_scan=True, infected_moved=infected_total)
+            time.sleep(SLEEP_EVERY)
+    for aid, name, eid, size in legacy:
+        data = fetch_bytes_legacy(aid)
+        infected_total += scan_blob(data, f"legacy_{aid}_{name}")
+        st["last_legacy_id"] = max(int(st.get("last_legacy_id") or 0), aid)
+        done += 1
+        if done % BATCH == 0:
+            save_state(st)
+            time.sleep(SLEEP_EVERY)
+    for eid, subj in emails:
+        data = fetch_body(eid)
+        infected_total += scan_blob(data, f"body_{eid}_{subj[:40]}")
+        st["last_email_id"] = max(int(st.get("last_email_id") or 0), eid)
+        done += 1
+        if done % BATCH == 0:
+            save_state(st)
+            time.sleep(SLEEP_EVERY)
+    save_state(st)
+    msg = f"DB-Scan fertig – {infected_total} Treffer ({done}/{total_targets} geprüft, inkrementell)"
+    log(msg)
+    event("db_scan_end", f"infected={infected_total} scanned={done}")
+    write_status(
+        scanning=False, message=msg, current_path="", scanned_paths=done,
+        total_paths=total_targets, last_scan=_now(), infected_moved=infected_total,
+        db_scan=False, clamd_running=clamd_running(), virus_scan_enabled=True,
+    )
+    return 2 if infected_total else 0
 
 
 if __name__ == "__main__":
