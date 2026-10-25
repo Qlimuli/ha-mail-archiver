@@ -112,59 +112,89 @@ def _parse_min_age(val):
 
 
 def _rule_where(rule: dict):
+    """Build SQL WHERE for one rule. Returns (where_sql, debug_info)."""
     m = rule.get("match") or {}
     clauses = ['e."IsLocked" = false']
+    debug = {}
+
     account_id = m.get("account_id")
     if account_id not in (None, "", 0, "0"):
         try:
-            clauses.append(f'e."MailAccountId" = {int(account_id)}')
+            clauses.append('e."MailAccountId" = %d' % int(account_id))
         except (TypeError, ValueError):
             pass
+
     from_mode = (m.get("from_mode") or "contains").lower()
     from_val = (m.get("from_value") or "").strip()
     if not from_val:
-        return None
+        return None, {"error": "from_value fehlt"}
     fv = _sql_escape(from_val.lower())
+
     if from_mode == "exact":
-        clauses.append(f"lower(e.\"From\") = '{fv}'")
+        clauses.append("lower(e.\"From\") = '%s'" % fv)
     elif from_mode == "domain":
         dom = fv.lstrip("@")
-        clauses.append(f"(lower(e.\"From\") like '%@{dom}' or lower(e.\"From\") like '%@{dom}>%')")
+        clauses.append(
+            "(lower(e.\"From\") LIKE '%%@%s' OR lower(e.\"From\") LIKE '%%@%s>%%')" % (dom, dom)
+        )
     else:
-        clauses.append(f"lower(e.\"From\") like '%{fv}%'")
+        clauses.append("lower(e.\"From\") LIKE '%%%s%%'" % fv)
+
     subj = (m.get("subject_contains") or "").strip()
     if subj:
-        clauses.append(f"lower(coalesce(e.\"Subject\",'')) like '%{_sql_escape(subj.lower())}%'")
-    # min_age_days: only mails older than N days (ReceivedDate)
+        clauses.append(
+            "lower(coalesce(e.\"Subject\",'')) LIKE '%%%s%%'" % _sql_escape(subj.lower())
+        )
+
+    # Mindestalter: Mails älter als N Tage (Empfangs- oder Sendedatum)
+    # Kalendertage, zeitzonenunabhängig über ::date
     min_age = m.get("min_age_days")
     if min_age not in (None, "", 0, "0"):
         try:
             days = max(0, int(min_age))
             if days > 0:
+                # COALESCE falls ReceivedDate NULL ist; Vergleich auf Datumsebene
                 clauses.append(
-                    "e.\"ReceivedDate\" < (NOW() AT TIME ZONE 'UTC' - INTERVAL '%d days')" % days
+                    "(COALESCE(e.\"ReceivedDate\", e.\"SentDate\"))::date <= (CURRENT_DATE - %d)"
+                    % days
                 )
+                debug["min_age_days"] = days
+                debug["age_sql"] = "COALESCE(ReceivedDate,SentDate)::date <= CURRENT_DATE - %d" % days
         except (TypeError, ValueError):
             pass
-    return " AND ".join(clauses)
+
+    return " AND ".join(clauses), debug
 
 
 def preview_rule(rule: dict, limit: int = 20) -> dict:
-    where = _rule_where(rule)
+    where, debug = _rule_where(rule)
     if not where:
-        return {"ok": False, "message": "from_value fehlt", "count": 0, "samples": []}
-    rc, out = _psql(f'SELECT count(*) FROM {SCHEMA}."ArchivedEmails" e WHERE {where};', tuples_only=True)
+        return {"ok": False, "message": (debug or {}).get("error", "from_value fehlt"), "count": 0, "samples": []}
+
+    sql_count = 'SELECT count(*) FROM %s."ArchivedEmails" e WHERE %s;' % (SCHEMA, where)
+    rc, out = _psql(sql_count, tuples_only=True)
     if rc != 0:
-        return {"ok": False, "message": out[-300:], "count": 0, "samples": []}
+        return {
+            "ok": False,
+            "message": out[-400:],
+            "count": 0,
+            "samples": [],
+            "debug": debug,
+            "sql": sql_count[:500],
+        }
     try:
         count = int((out.strip().splitlines() or ["0"])[0].strip() or "0")
     except ValueError:
         count = 0
-    rc2, out2 = _psql(
-        f'SELECT e."Id", left(e."From",80), left(coalesce(e."Subject",\'\'),80) '
-        f'FROM {SCHEMA}."ArchivedEmails" e WHERE {where} ORDER BY e."ReceivedDate" DESC LIMIT {int(limit)};',
-        tuples_only=True,
+
+    sql_s = (
+        'SELECT e."Id", left(e."From",80), left(coalesce(e."Subject",\'\'),60), '
+        'COALESCE(e."ReceivedDate", e."SentDate")::date '
+        'FROM %s."ArchivedEmails" e WHERE %s '
+        'ORDER BY COALESCE(e."ReceivedDate", e."SentDate") DESC LIMIT %d;'
+        % (SCHEMA, where, int(limit))
     )
+    rc2, out2 = _psql(sql_s, tuples_only=True)
     samples = []
     if rc2 == 0:
         for line in out2.strip().splitlines():
@@ -172,12 +202,22 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
                 continue
             parts = line.split("|")
             if len(parts) >= 3:
-                samples.append({"id": parts[0].strip(), "from": parts[1].strip(), "subject": parts[2].strip()})
-    return {"ok": True, "count": count, "samples": samples}
+                samples.append({
+                    "id": parts[0].strip(),
+                    "from": parts[1].strip(),
+                    "subject": parts[2].strip(),
+                    "date": parts[3].strip() if len(parts) > 3 else "",
+                })
+    return {
+        "ok": True,
+        "count": count,
+        "samples": samples,
+        "debug": debug,
+    }
 
 
 def apply_rule(rule: dict, dry_run: bool = False) -> dict:
-    where = _rule_where(rule)
+    where, debug = _rule_where(rule)
     if not where:
         return {"ok": False, "message": "ungueltige Regel", "deleted": 0}
     prev = preview_rule(rule, limit=5)
@@ -185,20 +225,39 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
         return {"ok": False, "message": prev.get("message", "preview failed"), "deleted": 0}
     count = int(prev.get("count") or 0)
     if dry_run or count == 0:
-        return {"ok": True, "deleted": 0, "matched": count, "dry_run": dry_run, "samples": prev.get("samples") or []}
-    sql = f'''BEGIN;
-DELETE FROM {SCHEMA}."EmailAttachments" a
- USING {SCHEMA}."ArchivedEmails" e
- WHERE a."ArchivedEmailId" = e."Id" AND {where};
-DELETE FROM {SCHEMA}."ArchivedEmails" e WHERE {where};
-COMMIT;
-'''
+        return {
+            "ok": True,
+            "deleted": 0,
+            "matched": count,
+            "dry_run": dry_run,
+            "samples": prev.get("samples") or [],
+            "debug": debug,
+        }
+
+    sql = (
+        "BEGIN;\n"
+        "DELETE FROM %s.\"EmailAttachments\" a\n"
+        " USING %s.\"ArchivedEmails\" e\n"
+        " WHERE a.\"ArchivedEmailId\" = e.\"Id\" AND %s;\n"
+        "DELETE FROM %s.\"ArchivedEmails\" e WHERE %s;\n"
+        "COMMIT;\n"
+    ) % (SCHEMA, SCHEMA, where, SCHEMA, where)
+
     rc, out = _psql(sql)
     if rc != 0:
-        append_event("rule_apply_error", f"{rule.get('name')}: {out[-200:]}")
+        append_event("rule_apply_error", "%s: %s" % (rule.get("name"), out[-200:]))
         return {"ok": False, "message": out[-400:], "deleted": 0, "matched": count}
-    append_event("rule_apply_ok", f"rule={rule.get('name') or rule.get('id')} deleted≈{count}")
-    return {"ok": True, "deleted": count, "matched": count, "dry_run": False, "samples": prev.get("samples") or []}
+    append_event(
+        "rule_apply_ok",
+        "rule=%s deleted≈%d" % (rule.get("name") or rule.get("id"), count),
+    )
+    return {
+        "ok": True,
+        "deleted": count,
+        "matched": count,
+        "dry_run": False,
+        "samples": prev.get("samples") or [],
+    }
 
 
 def apply_all_rules(dry_run: bool = False) -> dict:
@@ -267,7 +326,9 @@ def upsert_rule(data: dict) -> dict:
             "from_value": from_value,
             "subject_contains": (match.get("subject_contains") or data.get("subject_contains") or "").strip(),
             "account_id": match.get("account_id") if match.get("account_id") not in ("", None) else data.get("account_id"),
-            "min_age_days": _parse_min_age(match.get("min_age_days") if match.get("min_age_days") not in (None, "") else data.get("min_age_days")),
+            "min_age_days": _parse_min_age(
+                match.get("min_age_days") if match.get("min_age_days") not in (None, "") else data.get("min_age_days")
+            ),
         },
         "updated": _now(),
     }
@@ -328,7 +389,7 @@ def start_background_loop() -> None:
                 store = load_store()
                 mins = int(store.get("interval_minutes") or 30)
                 if store.get("enabled", True) and (store.get("rules") or []):
-                    append_event("rules_loop_tick", f"interval={mins}")
+                    append_event("rules_loop_tick", "interval=%d" % mins)
                     apply_all_rules(dry_run=False)
                 time.sleep(max(5, mins) * 60)
             except Exception as e:
