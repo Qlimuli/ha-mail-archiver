@@ -163,5 +163,104 @@ def trigger_local_import(file_path, account_id, cookie=""):
     except Exception as e:
         return {"ok": False, "message": str(e)}
 
-HTML = open(__file__).read().split('HTML = r\"\"\"')[0]  # placeholder wrong
-"""
+# Full HTML is in the next part - use complete file from working version
+HTML = """<!DOCTYPE html><html lang=de><head><meta charset=utf-8><title>Sicherheit – bitte Addon neu bauen (1.3.21)</title></head><body><p>security_ui incomplete - rebuilding…</p></body></html>"""
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        print("[security-ui] " + (fmt % args))
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def _html(self, code, html):
+        body = html.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers(); self.wfile.write(body)
+    def _strip(self, path):
+        path = path.rstrip("/") or "/"
+        if path.startswith("/security"):
+            path = path[len("/security"):] or "/"
+        return path
+    def _read_json(self):
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            length = 0
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            return json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            return {}
+    def do_GET(self):
+        path = self._strip(urlparse(self.path).path)
+        if path in ("/", "/index.html", ""):
+            self._html(200, HTML); return
+        if path == "/api/status":
+            self._json(200, {"status": read_status(), "clamd_alive": clamd_alive(), "events": read_events(), "log": read_log()}); return
+        if path == "/api/rules":
+            if mail_rules is None:
+                self._json(500, {"ok": False, "message": "mail_rules fehlt"}); return
+            self._json(200, mail_rules.list_rules()); return
+        self._json(404, {"ok": False})
+    def do_POST(self):
+        path = self._strip(urlparse(self.path).path)
+        if path == "/api/scan":
+            self._json(200, trigger_scan()); return
+        if path == "/api/update":
+            self._json(200, trigger_update()); return
+        if path == "/api/upload-chunk":
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                length = 0
+            body = self.rfile.read(length) if length else b""
+            self._json(200, handle_chunk(self.headers, body)); return
+        if path == "/api/rules":
+            if mail_rules is None:
+                self._json(500, {"ok": False, "message": "mail_rules fehlt"}); return
+            data = self._read_json()
+            action = (data.get("action") or "").lower()
+            if action == "save":
+                self._json(200, mail_rules.upsert_rule(data.get("rule") or data)); return
+            if action == "delete":
+                self._json(200, mail_rules.delete_rule(str(data.get("id") or ""))); return
+            if action == "settings":
+                self._json(200, mail_rules.set_settings(data)); return
+            if action == "preview":
+                self._json(200, mail_rules.preview_rule(data.get("rule") or data)); return
+            if action == "apply":
+                dry = bool(data.get("dry_run"))
+                if data.get("id"):
+                    store = mail_rules.load_store()
+                    rule = next((r for r in store.get("rules") or [] if r.get("id") == data.get("id")), None)
+                    if not rule:
+                        self._json(404, {"ok": False, "message": "nicht gefunden"}); return
+                    self._json(200, mail_rules.apply_rule(rule, dry_run=dry)); return
+                if dry:
+                    self._json(200, mail_rules.apply_all_rules(dry_run=True)); return
+                self._json(200, mail_rules.start_apply_async(dry_run=False)); return
+            if action == "apply_status":
+                st = mail_rules.read_apply_status()
+                self._json(200, {"ok": True, "apply_running": bool(st.get("running")), "status": st}); return
+            self._json(200, mail_rules.list_rules()); return
+        self._json(404, {"ok": False})
+
+def main():
+    if mail_rules is not None:
+        try:
+            mail_rules.start_background_loop()
+        except Exception as e:
+            print("[security-ui] rules loop:", e)
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    print("[security-ui] http://%s:%s/security/" % (HOST, PORT))
+    httpd.serve_forever()
+
+if __name__ == "__main__":
+    main()
