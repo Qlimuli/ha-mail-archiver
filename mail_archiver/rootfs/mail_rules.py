@@ -126,8 +126,20 @@ def _from_clause(from_mode: str, from_val: str) -> str:
     return col + " LIKE '%" + fv + "%'"
 
 
+def _mail_date_expr() -> str:
+    """Prefer real SentDate; ignore placeholder 0001-01-01. ReceivedDate is often import time."""
+    sent = "e." + _qident("SentDate")
+    recv = "e." + _qident("ReceivedDate")
+    return (
+        "CASE "
+        "WHEN " + sent + " >= TIMESTAMP '1970-01-01' THEN " + sent + " "
+        "WHEN " + recv + " >= TIMESTAMP '1970-01-01' THEN " + recv + " "
+        "ELSE NULL END"
+    )
+
+
 def _age_clause(days: int) -> str:
-    expr = "COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ")"
+    expr = "(" + _mail_date_expr() + ")"
     return (
         "(" + expr + " IS NOT NULL AND "
         + expr + " <= (CURRENT_TIMESTAMP - INTERVAL '" + str(int(days)) + " days'))"
@@ -186,10 +198,13 @@ def _count(where: str):
 
 
 def diagnose_dates() -> dict:
+    md = _mail_date_expr()
     sql = (
         "SELECT count(*), "
         "min(e." + _qident("ReceivedDate") + "), max(e." + _qident("ReceivedDate") + "), "
-        "min(e." + _qident("SentDate") + "), max(e." + _qident("SentDate") + "), "
+        "min(CASE WHEN e." + _qident("SentDate") + " >= TIMESTAMP '1970-01-01' THEN e." + _qident("SentDate") + " END), "
+        "max(CASE WHEN e." + _qident("SentDate") + " >= TIMESTAMP '1970-01-01' THEN e." + _qident("SentDate") + " END), "
+        "min(" + md + "), max(" + md + "), "
         "CURRENT_TIMESTAMP, CURRENT_DATE "
         "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e;"
     )
@@ -197,17 +212,20 @@ def diagnose_dates() -> dict:
     if rc != 0:
         return {"ok": False, "message": out[-400:], "sql": sql}
     parts = (out.strip().splitlines() or [""])[0].split("|")
-    while len(parts) < 7:
+    while len(parts) < 9:
         parts.append("")
     return {
         "ok": True,
         "total_emails": parts[0].strip(),
         "min_received": parts[1].strip(),
         "max_received": parts[2].strip(),
-        "min_sent": parts[3].strip(),
-        "max_sent": parts[4].strip(),
-        "db_now": parts[5].strip(),
-        "db_current_date": parts[6].strip(),
+        "min_sent_valid": parts[3].strip(),
+        "max_sent_valid": parts[4].strip(),
+        "min_mail_date": parts[5].strip(),
+        "max_mail_date": parts[6].strip(),
+        "db_now": parts[7].strip(),
+        "db_current_date": parts[8].strip(),
+        "note": "Altersfilter nutzt SentDate (>=1970), sonst ReceivedDate. ReceivedDate ist oft Importzeit.",
     }
 
 
@@ -235,12 +253,13 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
             "sql": where[:500],
         }
 
+    md = _mail_date_expr()
     sql_s = (
         "SELECT e." + _qident("Id") + ", left(e." + _qident("From") + ",80), "
         "left(coalesce(e." + _qident("Subject") + ",''),60), "
-        "COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ") "
+        + md + ", e." + _qident("SentDate") + ", e." + _qident("ReceivedDate") + " "
         "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e WHERE " + where + " "
-        "ORDER BY COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ") DESC "
+        "ORDER BY " + md + " DESC NULLS LAST "
         "LIMIT " + str(int(limit)) + ";"
     )
     rc2, out2 = _psql(sql_s, tuples_only=True)
@@ -256,6 +275,8 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
                     "from": parts[1].strip(),
                     "subject": parts[2].strip(),
                     "date": parts[3].strip() if len(parts) > 3 else "",
+                    "sent": parts[4].strip() if len(parts) > 4 else "",
+                    "received": parts[5].strip() if len(parts) > 5 else "",
                 })
 
     return {
