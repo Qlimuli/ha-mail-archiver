@@ -526,15 +526,40 @@ def start_apply_async(dry_run=False):
     threading.Thread(target=_run, daemon=True).start()
     return {"ok": True, "started": True, "dry_run": dry_run, "message": "gestartet"}
 
+def list_rules():
+    store = load_store()
+    return {
+        "ok": True,
+        "enabled": bool(store.get("enabled", True)),
+        "interval_minutes": int(store.get("interval_minutes") or 30),
+        "rules": store.get("rules") or [],
+        "last_run": store.get("last_run"),
+        "last_result": store.get("last_result"),
+        "apply_status": read_apply_status(),
+    }
+
+def update_settings(enabled=None, interval_minutes=None):
+    store = load_store()
+    if enabled is not None: store["enabled"] = bool(enabled)
+    if interval_minutes is not None:
+        try: store["interval_minutes"] = max(5, int(interval_minutes))
+        except (TypeError, ValueError): pass
+    save_store(store); return {"ok": True, "store": store}
+
+def set_settings(data):
+    data = data or {}
+    return update_settings(enabled=data.get("enabled"), interval_minutes=data.get("interval_minutes"))
+
 def upsert_rule(data):
     store = load_store(); rules = store.get("rules") or []; rid = (data.get("id") or "").strip()
+    match_in = data.get("match") if isinstance(data.get("match"), dict) else {}
     rule = {"id": rid or str(uuid.uuid4()), "name": (data.get("name") or "Regel").strip() or "Regel",
             "enabled": bool(data.get("enabled", True)),
-            "match": {"from_mode": (data.get("from_mode") or (data.get("match") or {}).get("from_mode") or "contains"),
-                      "from_value": (data.get("from_value") or (data.get("match") or {}).get("from_value") or "").strip(),
-                      "subject_contains": (data.get("subject_contains") or (data.get("match") or {}).get("subject_contains") or "").strip(),
-                      "min_age_days": _parse_min_age(data.get("min_age_days") if "min_age_days" in data else (data.get("match") or {}).get("min_age_days")),
-                      "account_id": (data.get("account_id") if "account_id" in data else (data.get("match") or {}).get("account_id"))},
+            "match": {"from_mode": (data.get("from_mode") or match_in.get("from_mode") or "contains"),
+                      "from_value": (data.get("from_value") or match_in.get("from_value") or "").strip(),
+                      "subject_contains": (data.get("subject_contains") or match_in.get("subject_contains") or "").strip(),
+                      "min_age_days": _parse_min_age(data.get("min_age_days") if "min_age_days" in data else match_in.get("min_age_days")),
+                      "account_id": (data.get("account_id") if "account_id" in data else match_in.get("account_id"))},
             "action": data.get("action") or "delete_local", "delete_remote": bool(data.get("delete_remote", True))}
     if not rule["match"]["from_value"]: return {"ok": False, "message": "Absender/Domain erforderlich"}
     found = False
@@ -549,14 +574,6 @@ def delete_rule(rule_id):
     store = load_store()
     store["rules"] = [r for r in (store.get("rules") or []) if r.get("id") != rule_id]
     save_store(store); return {"ok": True}
-
-def update_settings(enabled=None, interval_minutes=None):
-    store = load_store()
-    if enabled is not None: store["enabled"] = bool(enabled)
-    if interval_minutes is not None:
-        try: store["interval_minutes"] = max(5, int(interval_minutes))
-        except (TypeError, ValueError): pass
-    save_store(store); return {"ok": True, "store": store}
 
 def start_background_loop():
     global _loop_started
