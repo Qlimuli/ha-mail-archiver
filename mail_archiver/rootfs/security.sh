@@ -12,16 +12,16 @@ cfg() { jq -r "$1" "$OPTIONS" 2>/dev/null; }
 VIRUS_SCAN="$(cfg '.security_virus_scan // true')"
 QUARANTINE="$(cfg '.security_quarantine // true')"
 UPDATE_SIG="$(cfg '.security_update_signatures_on_start // true')"
-SCAN_ON_START="$(cfg '.security_scan_on_start // true')"
-SCAN_INTERVAL="$(cfg '.security_scan_interval_minutes // 60')"
+SCAN_ON_START="$(cfg '.security_scan_on_start // false')"
+SCAN_INTERVAL="$(cfg '.security_scan_interval_minutes // 360')"
 BLOCK_EXT="$(cfg '.security_block_dangerous_extensions // true')"
 DANGEROUS_EXT="$(cfg '.security_dangerous_extensions // "exe,dll,bat,cmd,com,scr,ps1,vbs,vbe,js,jse,wsf,wsh,msi,msp,hta,cpl,inf,reg,jar,iso,img,vhd,lnk"')"
 
 [[ "$VIRUS_SCAN" == "null" ]] && VIRUS_SCAN=true
 [[ "$QUARANTINE" == "null" ]] && QUARANTINE=true
 [[ "$UPDATE_SIG" == "null" ]] && UPDATE_SIG=true
-[[ "$SCAN_ON_START" == "null" ]] && SCAN_ON_START=true
-[[ "$SCAN_INTERVAL" == "null" || -z "$SCAN_INTERVAL" ]] && SCAN_INTERVAL=60
+[[ "$SCAN_ON_START" == "null" ]] && SCAN_ON_START=false
+[[ "$SCAN_INTERVAL" == "null" || -z "$SCAN_INTERVAL" ]] && SCAN_INTERVAL=360
 [[ "$BLOCK_EXT" == "null" ]] && BLOCK_EXT=true
 [[ "$DANGEROUS_EXT" == "null" || -z "$DANGEROUS_EXT" ]] && DANGEROUS_EXT="exe,dll,bat,cmd,com,scr,ps1,vbs,vbe,js,jse,wsf,wsh,msi,msp,hta,cpl,inf,reg,jar,iso,img,vhd,lnk"
 
@@ -116,6 +116,15 @@ update_signatures() {
   fi
 }
 
+# Limit ClamAV resource use
+for conf in /etc/clamav/clamd.conf /etc/clamav/clamd.conf.d/local.conf; do
+  [[ -f "$conf" ]] || continue
+  grep -q '^MaxThreads' "$conf" 2>/dev/null || echo 'MaxThreads 2' >> "$conf"
+  grep -q '^MaxFileSize' "$conf" 2>/dev/null || echo 'MaxFileSize 25M' >> "$conf"
+  grep -q '^MaxScanSize' "$conf" 2>/dev/null || echo 'MaxScanSize 50M' >> "$conf"
+  grep -q '^StreamMaxLength' "$conf" 2>/dev/null || echo 'StreamMaxLength 25M' >> "$conf"
+done
+
 start_clamd() {
   is_true "$VIRUS_SCAN" || return 0
   if pgrep -x clamd >/dev/null 2>&1; then
@@ -199,12 +208,11 @@ run_full_scan() {
     total=$((total + ${n:-0}))
   done
 
-  # Dateisystem fertig – gesamte DB (Anhänge + E-Mail-Bodies)
   if [[ -f /db_virus_scan.py ]]; then
-    log "Starte Datenbank-Scan (alle Anhänge und E-Mails)…"
-    event "db_scan_begin" "all attachments and email bodies"
+    log "Starte Datenbank-Scan (inkrementell, Anhänge)…"
+    event "db_scan_begin" "incremental attachments"
     set +e
-    python3 /db_virus_scan.py
+    nice -n 15 ionice -c3 python3 /db_virus_scan.py 2>/dev/null || nice -n 15 python3 /db_virus_scan.py
     db_rc=$?
     set -e
     if [[ "$db_rc" -eq 2 ]]; then
@@ -232,7 +240,7 @@ run_full_scan() {
   if [[ "$all_hits" -gt 0 ]]; then
     msg="Scan fertig – $all_hits Treffer (FS: $total, DB: ${db_hits:-0})"
   else
-    msg="Scan fertig – keine Treffer (Dateien: $SCAN_TOTAL, DB komplett)"
+    msg="Scan fertig – keine Treffer (Dateien: $SCAN_TOTAL, DB inkrementell)"
   fi
   write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$all_hits" "$msg" false "" "$SCAN_TOTAL" "$SCAN_TOTAL"
   event "scan_end" "infected_moved=$all_hits fs=$total db=${db_hits:-0} scanned_fs=$SCAN_TOTAL"
@@ -246,7 +254,7 @@ background_loop() {
     log "Periodischer Scan deaktiviert"
     exit 0
   fi
-  log "Periodischer Scan alle $mins Minuten"
+  log "Periodischer Scan alle $mins Minuten (niedrige Priorität)"
   while true; do
     sleep $((mins * 60))
     block_dangerous_files
