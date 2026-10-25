@@ -1,12 +1,13 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.18**
+Version **1.3.20**
 
-## 1.3.18 – Remote-Löschen zuverlässiger
+## 1.3.20 – Übersicht nach „Jetzt löschen“
 
-Beim **Jetzt löschen** der Mailregeln:
+Nach Vorschau / Löschen siehst du:
 
-- Zuerst **IMAP-Löschen** auf dem Server (alle Ordner, Message-ID)
-- Danach lokal im Archiv
-
-Remote ist standardmäßig aktiv. Ergebnis enthält `remote.remote_deleted` und `folders_tried`.
+- Lokal gelöscht / Treffer
+- Remote-Kandidaten
+- Remote gelöscht
+- Remote nicht gefunden
+- Pro Konto: gelöscht, Fehler, durchsuchte Ordner
