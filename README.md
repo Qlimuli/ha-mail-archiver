@@ -1,13 +1,12 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.17**
+Version **1.3.18**
 
-## 1.3.17 – Vollständiger Datenbank-Virenscan
+## 1.3.18 – Remote-Löschen zuverlässiger
 
-Der Security-Scan prüft nicht nur Import-Dateien, sondern:
+Beim **Jetzt löschen** der Mailregeln:
 
-1. Dateisystem (`/data/import` u. a.)
-2. **Alle Anhänge** in der DB (`AttachmentContents` + Legacy)
-3. **Alle E-Mail-Bodies** (Text + HTML)
+- Zuerst **IMAP-Löschen** auf dem Server (alle Ordner, Message-ID)
+- Danach lokal im Archiv
 
-Treffer werden nach `/data/quarantine` kopiert und im Security-Dashboard angezeigt.
+Remote ist standardmäßig aktiv. Ergebnis enthält `remote.remote_deleted` und `folders_tried`.
