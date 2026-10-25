@@ -111,16 +111,38 @@ def _parse_min_age(val):
         return None
 
 
-def _rule_where(rule: dict):
-    """Build SQL WHERE for one rule. Returns (where_sql, debug_info)."""
+def _qident(name: str) -> str:
+    return '"' + name.replace('"', '') + '"'
+
+
+def _from_clause(from_mode: str, from_val: str) -> str:
+    fv = _sql_escape(from_val.lower())
+    col = 'lower(e.' + _qident('From') + ')'
+    if from_mode == "exact":
+        return col + " = '" + fv + "'"
+    if from_mode == "domain":
+        dom = fv.lstrip("@")
+        return "(" + col + " LIKE '%@" + dom + "' OR " + col + " LIKE '%@" + dom + ">%')"
+    return col + " LIKE '%" + fv + "%'"
+
+
+def _age_clause(days: int) -> str:
+    expr = "COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ")"
+    return (
+        "(" + expr + " IS NOT NULL AND "
+        + expr + " <= (CURRENT_TIMESTAMP - INTERVAL '" + str(int(days)) + " days'))"
+    )
+
+
+def _rule_where(rule: dict, include_age: bool = True):
     m = rule.get("match") or {}
-    clauses = ['e."IsLocked" = false']
+    clauses = ["e." + _qident("IsLocked") + " = false"]
     debug = {}
 
     account_id = m.get("account_id")
     if account_id not in (None, "", 0, "0"):
         try:
-            clauses.append('e."MailAccountId" = %d' % int(account_id))
+            clauses.append("e." + _qident("MailAccountId") + " = " + str(int(account_id)))
         except (TypeError, ValueError):
             pass
 
@@ -128,71 +150,98 @@ def _rule_where(rule: dict):
     from_val = (m.get("from_value") or "").strip()
     if not from_val:
         return None, {"error": "from_value fehlt"}
-    fv = _sql_escape(from_val.lower())
-
-    if from_mode == "exact":
-        clauses.append("lower(e.\"From\") = '%s'" % fv)
-    elif from_mode == "domain":
-        dom = fv.lstrip("@")
-        clauses.append(
-            "(lower(e.\"From\") LIKE '%%@%s' OR lower(e.\"From\") LIKE '%%@%s>%%')" % (dom, dom)
-        )
-    else:
-        clauses.append("lower(e.\"From\") LIKE '%%%s%%'" % fv)
+    clauses.append(_from_clause(from_mode, from_val))
 
     subj = (m.get("subject_contains") or "").strip()
     if subj:
         clauses.append(
-            "lower(coalesce(e.\"Subject\",'')) LIKE '%%%s%%'" % _sql_escape(subj.lower())
+            "lower(coalesce(e." + _qident("Subject") + ",'')) LIKE '%"
+            + _sql_escape(subj.lower())
+            + "%'"
         )
 
-    # Mindestalter: Mails älter als N Tage (Empfangs- oder Sendedatum)
-    # Kalendertage, zeitzonenunabhängig über ::date
     min_age = m.get("min_age_days")
-    if min_age not in (None, "", 0, "0"):
+    if include_age and min_age not in (None, "", 0, "0"):
         try:
             days = max(0, int(min_age))
             if days > 0:
-                # COALESCE falls ReceivedDate NULL ist; Vergleich auf Datumsebene
-                clauses.append(
-                    "(COALESCE(e.\"ReceivedDate\", e.\"SentDate\"))::date <= (CURRENT_DATE - %d)"
-                    % days
-                )
+                clauses.append(_age_clause(days))
                 debug["min_age_days"] = days
-                debug["age_sql"] = "COALESCE(ReceivedDate,SentDate)::date <= CURRENT_DATE - %d" % days
+                debug["age_sql"] = _age_clause(days)
         except (TypeError, ValueError):
             pass
 
     return " AND ".join(clauses), debug
 
 
+def _count(where: str):
+    sql = "SELECT count(*) FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e WHERE " + where + ";"
+    rc, out = _psql(sql, tuples_only=True)
+    if rc != 0:
+        return None, out[-400:]
+    try:
+        return int((out.strip().splitlines() or ["0"])[0].strip() or "0"), ""
+    except ValueError:
+        return 0, ""
+
+
+def diagnose_dates() -> dict:
+    sql = (
+        "SELECT count(*), "
+        "min(e." + _qident("ReceivedDate") + "), max(e." + _qident("ReceivedDate") + "), "
+        "min(e." + _qident("SentDate") + "), max(e." + _qident("SentDate") + "), "
+        "CURRENT_TIMESTAMP, CURRENT_DATE "
+        "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e;"
+    )
+    rc, out = _psql(sql, tuples_only=True)
+    if rc != 0:
+        return {"ok": False, "message": out[-400:], "sql": sql}
+    parts = (out.strip().splitlines() or [""])[0].split("|")
+    while len(parts) < 7:
+        parts.append("")
+    return {
+        "ok": True,
+        "total_emails": parts[0].strip(),
+        "min_received": parts[1].strip(),
+        "max_received": parts[2].strip(),
+        "min_sent": parts[3].strip(),
+        "max_sent": parts[4].strip(),
+        "db_now": parts[5].strip(),
+        "db_current_date": parts[6].strip(),
+    }
+
+
 def preview_rule(rule: dict, limit: int = 20) -> dict:
-    where, debug = _rule_where(rule)
+    where, debug = _rule_where(rule, include_age=True)
     if not where:
         return {"ok": False, "message": (debug or {}).get("error", "from_value fehlt"), "count": 0, "samples": []}
 
-    sql_count = 'SELECT count(*) FROM %s."ArchivedEmails" e WHERE %s;' % (SCHEMA, where)
-    rc, out = _psql(sql_count, tuples_only=True)
-    if rc != 0:
+    where_no_age, _ = _rule_where(rule, include_age=False)
+    matched_no_age = None
+    if where_no_age:
+        matched_no_age, err0 = _count(where_no_age)
+        if matched_no_age is None:
+            debug["count_no_age_error"] = err0
+
+    count, err = _count(where)
+    if count is None:
         return {
             "ok": False,
-            "message": out[-400:],
+            "message": err,
             "count": 0,
             "samples": [],
             "debug": debug,
-            "sql": sql_count[:500],
+            "matched_without_age": matched_no_age,
+            "sql": where[:500],
         }
-    try:
-        count = int((out.strip().splitlines() or ["0"])[0].strip() or "0")
-    except ValueError:
-        count = 0
 
     sql_s = (
-        'SELECT e."Id", left(e."From",80), left(coalesce(e."Subject",\'\'),60), '
-        'COALESCE(e."ReceivedDate", e."SentDate")::date '
-        'FROM %s."ArchivedEmails" e WHERE %s '
-        'ORDER BY COALESCE(e."ReceivedDate", e."SentDate") DESC LIMIT %d;'
-        % (SCHEMA, where, int(limit))
+        "SELECT e." + _qident("Id") + ", left(e." + _qident("From") + ",80), "
+        "left(coalesce(e." + _qident("Subject") + ",''),60), "
+        "COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ") "
+        "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e WHERE " + where + " "
+        "ORDER BY COALESCE(e." + _qident("ReceivedDate") + ", e." + _qident("SentDate") + ") DESC "
+        "LIMIT " + str(int(limit)) + ";"
     )
     rc2, out2 = _psql(sql_s, tuples_only=True)
     samples = []
@@ -208,16 +257,19 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
                     "subject": parts[2].strip(),
                     "date": parts[3].strip() if len(parts) > 3 else "",
                 })
+
     return {
         "ok": True,
         "count": count,
+        "matched_without_age": matched_no_age,
         "samples": samples,
         "debug": debug,
+        "where": where[:600],
     }
 
 
 def apply_rule(rule: dict, dry_run: bool = False) -> dict:
-    where, debug = _rule_where(rule)
+    where, debug = _rule_where(rule, include_age=True)
     if not where:
         return {"ok": False, "message": "ungueltige Regel", "deleted": 0}
     prev = preview_rule(rule, limit=5)
@@ -229,28 +281,26 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
             "ok": True,
             "deleted": 0,
             "matched": count,
+            "matched_without_age": prev.get("matched_without_age"),
             "dry_run": dry_run,
             "samples": prev.get("samples") or [],
             "debug": debug,
         }
 
+    att = SCHEMA + "." + _qident("EmailAttachments")
+    em = SCHEMA + "." + _qident("ArchivedEmails")
     sql = (
         "BEGIN;\n"
-        "DELETE FROM %s.\"EmailAttachments\" a\n"
-        " USING %s.\"ArchivedEmails\" e\n"
-        " WHERE a.\"ArchivedEmailId\" = e.\"Id\" AND %s;\n"
-        "DELETE FROM %s.\"ArchivedEmails\" e WHERE %s;\n"
+        "DELETE FROM " + att + " a USING " + em + " e "
+        "WHERE a." + _qident("ArchivedEmailId") + " = e." + _qident("Id") + " AND " + where + ";\n"
+        "DELETE FROM " + em + " e WHERE " + where + ";\n"
         "COMMIT;\n"
-    ) % (SCHEMA, SCHEMA, where, SCHEMA, where)
-
+    )
     rc, out = _psql(sql)
     if rc != 0:
         append_event("rule_apply_error", "%s: %s" % (rule.get("name"), out[-200:]))
         return {"ok": False, "message": out[-400:], "deleted": 0, "matched": count}
-    append_event(
-        "rule_apply_ok",
-        "rule=%s deleted≈%d" % (rule.get("name") or rule.get("id"), count),
-    )
+    append_event("rule_apply_ok", "rule=%s deleted≈%d" % (rule.get("name") or rule.get("id"), count))
     return {
         "ok": True,
         "deleted": count,
@@ -288,7 +338,7 @@ def apply_all_rules(dry_run: bool = False) -> dict:
         store["last_run"] = _now()
         store["last_result"] = {"deleted": total, "dry_run": dry_run, "results": results}
         save_store(store)
-        return {"ok": True, "deleted": total, "dry_run": dry_run, "results": results}
+        return {"ok": True, "deleted": total, "dry_run": dry_run, "results": results, "date_stats": diagnose_dates()}
     finally:
         with _apply_lock:
             _apply_running = False
@@ -304,6 +354,7 @@ def list_rules() -> dict:
         "last_result": store.get("last_result"),
         "rules": store.get("rules") or [],
         "apply_running": _apply_running,
+        "date_stats": diagnose_dates(),
     }
 
 
