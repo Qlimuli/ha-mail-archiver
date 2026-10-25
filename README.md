@@ -9,10 +9,10 @@ Version **1.3.26**
 * GMX & Co.: alle auswählbaren Mailboxen, nicht nur INBOX + wenige
 * Mehr LIST/LSUB-Varianten (`"" "*"`, `%`, LSUB)
 * Event-Log: `remote_folders` mit discovered/scan/sample
-* Engine als Loader + `mail_rules_part*.b64` (zlib) ausgeliefert
+* `mail_rules.py` als Loader + `mail_rules_part00.b64` … `part09.b64` (zlib)
 
-Add-on **1.3.26** neu bauen, dann erneut Vorschau / Löschen.
+**Add-on 1.3.26 neu bauen**, dann erneut Vorschau / Löschen.
 
 ## 1.3.20 – Übersicht nach „Jetzt löschen“
 
-Nach Vorschau / Löschen siehst du: Lokal gelöscht / Treffer, Remote-Kandidaten, Remote gelöscht, Remote nicht gefunden, pro Konto Ordner.
+Nach Vorschau / Löschen: Lokal gelöscht / Treffer, Remote-Kandidaten, Remote gelöscht, Remote nicht gefunden, pro Konto Ordner.
