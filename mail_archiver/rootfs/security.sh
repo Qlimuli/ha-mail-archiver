@@ -199,17 +199,44 @@ run_full_scan() {
     total=$((total + ${n:-0}))
   done
 
+  # Dateisystem fertig – gesamte DB (Anhänge + E-Mail-Bodies)
+  if [[ -f /db_virus_scan.py ]]; then
+    log "Starte Datenbank-Scan (alle Anhänge und E-Mails)…"
+    event "db_scan_begin" "all attachments and email bodies"
+    set +e
+    python3 /db_virus_scan.py
+    db_rc=$?
+    set -e
+    if [[ "$db_rc" -eq 2 ]]; then
+      log "DB-Scan: Treffer gefunden"
+    elif [[ "$db_rc" -ne 0 ]]; then
+      log "WARNUNG: DB-Scan exit $db_rc"
+    else
+      log "DB-Scan ohne Treffer"
+    fi
+  else
+    log "Hinweis: /db_virus_scan.py fehlt – nur Dateisystem gescannt"
+  fi
+
   local now
   now=$(date -Iseconds)
-  local msg
-  if [[ "$total" -gt 0 ]]; then
-    msg="Scan fertig – $total Treffer in Quarantäne"
-  else
-    msg="Scan fertig – keine Treffer ($SCAN_TOTAL geprüft)"
+  local db_hits=0
+  if [[ -f "$STATUS_FILE" ]] && command -v jq >/dev/null 2>&1; then
+    db_hits=$(jq -r '.infected_moved // 0' "$STATUS_FILE" 2>/dev/null || echo 0)
   fi
-  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$total" "$msg" false "" "$SCAN_TOTAL" "$SCAN_TOTAL"
-  event "scan_end" "infected_moved=$total scanned=$SCAN_TOTAL"
-  log "Scan abgeschlossen. Infiziert/verschoben: $total | Geprüft: $SCAN_TOTAL | Quarantäne: $QUAR_DIR"
+  local all_hits=$total
+  if [[ -f /db_virus_scan.py ]]; then
+    all_hits=$((total + ${db_hits:-0}))
+  fi
+  local msg
+  if [[ "$all_hits" -gt 0 ]]; then
+    msg="Scan fertig – $all_hits Treffer (FS: $total, DB: ${db_hits:-0})"
+  else
+    msg="Scan fertig – keine Treffer (Dateien: $SCAN_TOTAL, DB komplett)"
+  fi
+  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$all_hits" "$msg" false "" "$SCAN_TOTAL" "$SCAN_TOTAL"
+  event "scan_end" "infected_moved=$all_hits fs=$total db=${db_hits:-0} scanned_fs=$SCAN_TOTAL"
+  log "Scan abgeschlossen. Treffer gesamt: $all_hits (FS=$total DB=${db_hits:-0}) | FS-Ziele: $SCAN_TOTAL | Quarantäne: $QUAR_DIR"
 }
 
 background_loop() {
