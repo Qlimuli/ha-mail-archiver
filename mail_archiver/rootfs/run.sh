@@ -1,16 +1,20 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 log() { echo "[mail-archiver] $*"; }
 
-OPTIONS=/data/options.json
-if [ ! -f "$OPTIONS" ]; then
-  echo '{}' > /tmp/options.json
-  OPTIONS=/tmp/options.json
+CFG="/data/options.json"
+if [ ! -f "$CFG" ]; then
+  CFG="/data/options.json"
 fi
-export OPTIONS_FILE="$OPTIONS"
 
-cfg() { jq -r "$1" "$OPTIONS"; }
+cfg() {
+  if [ -f "$CFG" ]; then
+    jq -r "$1" "$CFG" 2>/dev/null || echo ""
+  else
+    echo ""
+  fi
+}
 
 ADMIN_USER="$(cfg '.admin_username // "admin"')"
 ADMIN_PASS="$(cfg '.admin_password // "changeme"')"
@@ -18,30 +22,25 @@ TIMEZONE="$(cfg '.timezone // "Europe/Berlin"')"
 USE_EXT="$(cfg '.use_external_db // false')"
 VIRUS_SCAN="$(cfg '.security_virus_scan // true')"
 
-[ "$ADMIN_USER" = "null" ] || [ -z "$ADMIN_USER" ] && ADMIN_USER=admin
-[ "$ADMIN_PASS" = "null" ] || [ -z "$ADMIN_PASS" ] && ADMIN_PASS=changeme
-[ "$TIMEZONE" = "null" ] || [ -z "$TIMEZONE" ] && TIMEZONE=Europe/Berlin
+if [ -z "$ADMIN_USER" ] || [ "$ADMIN_USER" = "null" ]; then ADMIN_USER=admin; fi
+if [ -z "$ADMIN_PASS" ] || [ "$ADMIN_PASS" = "null" ]; then ADMIN_PASS=changeme; fi
+if [ -z "$TIMEZONE" ] || [ "$TIMEZONE" = "null" ]; then TIMEZONE=Europe/Berlin; fi
 
-if [ -f "/usr/share/zoneinfo/${TIMEZONE}" ]; then
-  ln -sfn "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime
-  echo "$TIMEZONE" > /etc/timezone
-fi
 export TZ="$TIMEZONE"
-
-PG_BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)"
-if [ -z "$PG_BIN" ]; then
-  log "ERROR: PostgreSQL binaries not found"
-  exit 1
-fi
+ln -snf "/usr/share/zoneinfo/${TIMEZONE}" /etc/localtime 2>/dev/null || true
+echo "$TIMEZONE" > /etc/timezone 2>/dev/null || true
 
 start_embedded_postgres() {
-  local pgdata=/data/pg
-  mkdir -p /data
-  chown postgres:postgres /data 2>/dev/null || true
+  local pgdata="/data/pg"
+  local PG_BIN
+  PG_BIN="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | head -1)"
+  if [ -z "$PG_BIN" ]; then
+    log "ERROR: PostgreSQL binaries nicht gefunden"
+    exit 1
+  fi
 
-  if [ ! -s "${pgdata}/PG_VERSION" ]; then
-    log "Initialisiere lokale PostgreSQL-Datenbank in ${pgdata}"
-    rm -rf "$pgdata"
+  if [ ! -f "${pgdata}/PG_VERSION" ]; then
+    log "Initialisiere PostgreSQL in $pgdata"
     mkdir -p "$pgdata"
     chown postgres:postgres "$pgdata"
     chmod 700 "$pgdata"
@@ -122,6 +121,8 @@ export Authentication__Password="${ADMIN_PASS}"
 export Authentication__SessionTimeoutMinutes=120
 export Authentication__CookieName=MailArchiverAuth
 export Authentication__CookieSameSite=Lax
+export Dashboard__RefreshIntervalMinutes=5
+export Dashboard__CacheSeconds=30
 export TimeZone__DisplayTimeZoneId="${TIMEZONE}"
 export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
@@ -142,21 +143,12 @@ find /data/import -maxdepth 1 -type f \( -name '*.part' -o -name '.*.json' \) -d
 log "Temp-Bereinigung fertig"
 # LocalImport-Pfad der App + HA-Volume verknüpfen
 ln -sfn /data/import /app/imports 2>/dev/null || true
-if [ -e /app/DataProtection-Keys ] && [ ! -L /app/DataProtection-Keys ]; then
-  rm -rf /app/DataProtection-Keys
-fi
-ln -sfn /data/keys /app/DataProtection-Keys
+ln -sfn /data/import /app/uploads/eml 2>/dev/null || true
 
-export Upload__MaxFileSizeGB=10
-export Upload__KeepAliveTimeoutHours=4
-export Upload__RequestHeadersTimeoutHours=2
-export LocalImport__AllowedPaths__0=/data/import
-export LocalImport__AllowedPaths__1=/app/imports
-
-if [ -x /security.sh ]; then
-  log "Starte Sicherheitsmodul…"
-  /security.sh start || log "WARNUNG: Sicherheitsstart mit Fehlern"
-  /security.sh loop &
+if [ -f /security.sh ]; then
+  # shellcheck source=/dev/null
+  . /security.sh
+  start_security_module || log "WARN: Security-Modul startete nicht sauber"
 fi
 
 if [ -f /security_ui.py ]; then
