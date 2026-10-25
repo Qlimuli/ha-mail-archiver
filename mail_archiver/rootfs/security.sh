@@ -87,7 +87,7 @@ block_dangerous_files() {
           break
         fi
       done
-    done < <(find "$dir" -type f -print0 2>/dev/null)
+    done < <(find "$dir" -maxdepth 3 -type f -print0 2>/dev/null)
   done
   [[ "$count" -gt 0 ]] && log "$count Datei(en) mit gefährlicher Endung isoliert"
 }
@@ -207,7 +207,6 @@ case "$cmd" in
     update_signatures
     start_clamd
     block_dangerous_files
-    # Scan im Hintergrund – sonst blockiert der Start nginx + App (GUI unerreichbar)
     if is_true "$SCAN_ON_START"; then
       log "Starte Sicherheits-Scan im Hintergrund…"
       (
