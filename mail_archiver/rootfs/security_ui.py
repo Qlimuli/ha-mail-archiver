@@ -174,7 +174,7 @@ def trigger_local_import(file_path, account_id, cookie=""):
             import re, urllib.request, urllib.error, uuid
             base = os.environ.get("MAIL_ARCHIVER_INTERNAL", "http://127.0.0.1:5001").rstrip("/")
             import_url = base + "/MailAccounts/ImportEml"
-            req = urllib.request.Request(import_url, headers={"Cookie": cookie, "User-Agent": "ha-mail-archiver/1.3.9"})
+            req = urllib.request.Request(import_url, headers={"Cookie": cookie, "User-Agent": "ha-mail-archiver/1.3.15"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
             m = re.search(r'name="__RequestVerificationToken"[^>]*value="([^"]+)"', html) or re.search(r'value="([^"]+)"[^>]*name="__RequestVerificationToken"', html)
@@ -196,7 +196,7 @@ def trigger_local_import(file_path, account_id, cookie=""):
                         raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
                 req2 = urllib.request.Request(import_url, data=body, method="POST", headers={
                     "Cookie": cookie, "Content-Type": f"multipart/form-data; boundary={boundary}",
-                    "Content-Length": str(len(body)), "User-Agent": "ha-mail-archiver/1.3.9",
+                    "Content-Length": str(len(body)), "User-Agent": "ha-mail-archiver/1.3.15",
                 })
                 try:
                     urllib.request.build_opener(_NoRedir).open(req2, timeout=600)
@@ -256,6 +256,11 @@ HTML = """<!DOCTYPE html>
 <div class="col-md-1"><input type="number" min="0" class="form-control form-control-sm" id="r-age" placeholder="Tage" title="Nur Mails älter als X Tage (0 = alle)"></div>
 <div class="col-md-2"><button class="btn btn-sm btn-primary w-100" id="r-add">Regel speichern</button></div>
 </div>
+<div class="form-check mb-2">
+<input class="form-check-input" type="checkbox" id="r-remote">
+<label class="form-check-label" for="r-remote">Auch im Remote-Postfach löschen (IMAP, z.&nbsp;B. GMX/Gmail)</label>
+</div>
+<div class="small text-muted mb-2">Remote-Löschen nutzt die Kontodaten aus dem Archiv (IMAP). Verschlüsselte Passwörter (enc:…) werden übersprungen.</div>
 <div id="rules-list" class="small"></div>
 <pre class="log mb-0 mt-2" id="rules-out"></pre>
 </div></div>
@@ -279,16 +284,16 @@ document.getElementById('rules-enabled').checked=!!d.enabled;
 document.getElementById('rules-interval').value=d.interval_minutes||30;
 var rules=d.rules||[], el=document.getElementById('rules-list');
 if(!rules.length){el.innerHTML='<div class="text-muted">Keine Regeln – Absender eintragen und speichern.</div>';return;}
-el.innerHTML='<ul class="list-group list-group-flush">'+rules.map(function(r){var m=r.match||{};var age=m.min_age_days?(' ≥'+m.min_age_days+'d'):'';return '<li class="list-group-item bg-transparent text-light d-flex justify-content-between gap-2"><div><b>'+esc(r.name)+'</b> '+esc(m.from_mode)+': <code>'+esc(m.from_value)+'</code>'+age+(m.subject_contains?(' / '+esc(m.subject_contains)):'')+'</div><button class="btn btn-sm btn-outline-danger" data-del="'+esc(r.id)+'">×</button></li>';}).join('')+'</ul>';
+el.innerHTML='<ul class="list-group list-group-flush">'+rules.map(function(r){var m=r.match||{};var age=m.min_age_days?(' ≥'+m.min_age_days+'d'):'';var rem=r.delete_remote?' <span class="badge bg-warning text-dark">Remote</span>':'';return '<li class="list-group-item bg-transparent text-light d-flex justify-content-between gap-2"><div><b>'+esc(r.name)+'</b> '+esc(m.from_mode)+': <code>'+esc(m.from_value)+'</code>'+age+rem+(m.subject_contains?(' / '+esc(m.subject_contains)):'')+'</div><button class="btn btn-sm btn-outline-danger" data-del="'+esc(r.id)+'">×</button></li>';}).join('')+'</ul>';
 el.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:b.getAttribute('data-del')})}).then(loadRules);};});
 }).catch(function(e){document.getElementById('rules-out').textContent=String(e);});}
 document.getElementById('scan').onclick=function(){api('/api/scan',{method:'POST'}).then(function(){setTimeout(refresh,1000);});};
 document.getElementById('upd').onclick=function(){api('/api/update',{method:'POST'}).then(function(){setTimeout(refresh,1500);});};
 document.getElementById('ref').onclick=function(){refresh();loadRules();};
 document.getElementById('rules-save-set').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'settings',enabled:document.getElementById('rules-enabled').checked,interval_minutes:parseInt(document.getElementById('rules-interval').value||'30',10)})}).then(loadRules);};
-document.getElementById('r-add').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',rule:{name:document.getElementById('r-name').value,enabled:true,match:{from_mode:document.getElementById('r-mode').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:parseInt(document.getElementById('r-age').value||'0',10)||null}}})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r);document.getElementById('r-from').value='';loadRules();});};
+document.getElementById('r-add').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',rule:{name:document.getElementById('r-name').value,enabled:true,delete_remote:!!document.getElementById('r-remote').checked,match:{from_mode:document.getElementById('r-mode').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:parseInt(document.getElementById('r-age').value||'0',10)||null}}})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r);document.getElementById('r-from').value='';loadRules();});};
 document.getElementById('rules-apply-dry').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);});};
-document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails im Archiv jetzt löschen?'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);loadRules();});};
+document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails im Archiv jetzt löschen? (Remote-Löschen nur wenn in der Regel aktiviert)'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);loadRules();});};
 refresh();loadRules();setInterval(refresh,15000);
 })();
 </script></body></html>
@@ -328,27 +333,34 @@ class Handler(BaseHTTPRequestHandler):
             return {}
     def do_GET(self):
         path = self._strip(urlparse(self.path).path)
-        if path in ("/", "/index.html"):
+        if path in ("/", "/index.html", ""):
             self._html(200, HTML); return
         if path == "/api/status":
-            self._json(200, {"status": read_status(), "clamd_alive": clamd_alive(), "events": read_events(), "log": read_log(), "import_files": list_dir_files(IMPORT), "server_time": _now()})
-            return
+            self._json(200, {"status": read_status(), "clamd_alive": clamd_alive(), "events": read_events(), "log": read_log(),
+                             "quarantine": list_dir_files(QUAR, 50), "import": list_dir_files(IMPORT, 50)}); return
         if path == "/api/rules":
             if mail_rules is None:
                 self._json(500, {"ok": False, "message": "mail_rules fehlt"}); return
             self._json(200, mail_rules.list_rules()); return
-        self._json(404, {"error": "not found"})
+        self._json(404, {"ok": False, "message": "not found"})
     def do_POST(self):
         path = self._strip(urlparse(self.path).path)
         if path == "/api/scan":
             self._json(200, trigger_scan()); return
         if path == "/api/update":
             self._json(200, trigger_update()); return
+        if path == "/api/upload-chunk":
+            try:
+                length = int(self.headers.get("Content-Length") or "0")
+            except ValueError:
+                length = 0
+            body = self.rfile.read(length) if length else b""
+            self._json(200, handle_chunk(self.headers, body)); return
         if path == "/api/rules":
             if mail_rules is None:
                 self._json(500, {"ok": False, "message": "mail_rules fehlt"}); return
             data = self._read_json()
-            action = (data.get("action") or "list").lower()
+            action = (data.get("action") or "").lower()
             if action == "save":
                 self._json(200, mail_rules.upsert_rule(data.get("rule") or data)); return
             if action == "delete":
@@ -363,47 +375,25 @@ class Handler(BaseHTTPRequestHandler):
                     store = mail_rules.load_store()
                     rule = next((r for r in store.get("rules") or [] if r.get("id") == data.get("id")), None)
                     if not rule:
-                        self._json(404, {"ok": False, "message": "nicht gefunden"}); return
+                        self._json(404, {"ok": False, "message": "Regel nicht gefunden"}); return
                     self._json(200, mail_rules.apply_rule(rule, dry_run=dry)); return
                 self._json(200, mail_rules.apply_all_rules(dry_run=dry)); return
             self._json(200, mail_rules.list_rules()); return
-        if path == "/api/import-local":
+        if path == "/api/assemble-and-import":
             data = self._read_json()
-            file_path = data.get("file") or data.get("path") or ""
-            try:
-                account_id = int(data.get("account_id") or 0)
-            except (TypeError, ValueError):
-                account_id = 0
-            cookie = self.headers.get("Cookie") or data.get("cookie") or ""
-            result = trigger_local_import(str(file_path), account_id, cookie=cookie)
-            self._json(200 if result.get("ok") else 400, result); return
-        if path == "/api/upload-chunk":
-            try:
-                length = int(self.headers.get("Content-Length") or "0")
-            except ValueError:
-                length = 0
-            body = self.rfile.read(length) if length else b""
-            hdrs = {k: self.headers.get(k) for k in ("X-Upload-Id", "X-File-Name", "X-Chunk-Index", "X-Chunk-Total")}
-            try:
-                result = handle_chunk(hdrs, body)
-                self._json(200 if result.get("ok") else 400, result)
-            except Exception as e:
-                self._json(500, {"ok": False, "message": str(e)})
-            return
-        self._json(404, {"error": "not found"})
+            cookie = self.headers.get("Cookie") or ""
+            self._json(200, trigger_local_import(data.get("path") or data.get("file") or "", data.get("accountId") or data.get("account_id") or 0, cookie)); return
+        self._json(404, {"ok": False, "message": "not found"})
 
 def main():
-    STATUS.parent.mkdir(parents=True, exist_ok=True)
-    QUAR.mkdir(parents=True, exist_ok=True)
-    IMPORT.mkdir(parents=True, exist_ok=True)
-    UPLOAD_TMP.mkdir(parents=True, exist_ok=True)
     if mail_rules is not None:
         try:
             mail_rules.start_background_loop()
         except Exception as e:
             print("[security-ui] rules loop:", e)
-    print(f"[security-ui] listening on http://{HOST}:{PORT}")
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    httpd = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"[security-ui] http://{HOST}:{PORT}/security/")
+    httpd.serve_forever()
 
 if __name__ == "__main__":
     main()
