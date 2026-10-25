@@ -1,12 +1,12 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.9**
+Version **1.3.10**
 
-## 1.3.9 – Mailregeln: Mindestalter
+## 1.3.10 – Altersfilter behoben
 
-Feld **Tage**: Nur Mails **älter als X Tage** werden gelöscht (Empfangsdatum).
+Der Filter **Tage** bei Mailregeln nutzt jetzt:
 
-- leer / 0 = kein Altersfilter
-- z.B. 30 = nur älter als 30 Tage
+- `COALESCE(ReceivedDate, SentDate)` (falls Empfangsdatum fehlt)
+- Kalendervergleich: Datum ≤ heute − N Tage
 
-Add-on **1.3.9** neu bauen.
+Add-on **1.3.10** neu bauen, Regel speichern, **Vorschau** prüfen.
