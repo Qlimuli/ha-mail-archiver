@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mail rules: auto-delete archived mails by sender (and optional subject/age)."""
+"""Mail rules: auto-delete archived mails by sender (and optional subject/age/remote)."""
 from __future__ import annotations
 
 import json
@@ -127,7 +127,6 @@ def _from_clause(from_mode: str, from_val: str) -> str:
 
 
 def _mail_date_expr() -> str:
-    """Prefer real SentDate; ignore placeholder 0001-01-01. ReceivedDate is often import time."""
     sent = "e." + _qident("SentDate")
     recv = "e." + _qident("ReceivedDate")
     return (
@@ -150,28 +149,23 @@ def _rule_where(rule: dict, include_age: bool = True):
     m = rule.get("match") or {}
     clauses = ["e." + _qident("IsLocked") + " = false"]
     debug = {}
-
     account_id = m.get("account_id")
     if account_id not in (None, "", 0, "0"):
         try:
             clauses.append("e." + _qident("MailAccountId") + " = " + str(int(account_id)))
         except (TypeError, ValueError):
             pass
-
     from_mode = (m.get("from_mode") or "contains").lower()
     from_val = (m.get("from_value") or "").strip()
     if not from_val:
         return None, {"error": "from_value fehlt"}
     clauses.append(_from_clause(from_mode, from_val))
-
     subj = (m.get("subject_contains") or "").strip()
     if subj:
         clauses.append(
             "lower(coalesce(e." + _qident("Subject") + ",'')) LIKE '%"
-            + _sql_escape(subj.lower())
-            + "%'"
+            + _sql_escape(subj.lower()) + "%'"
         )
-
     min_age = m.get("min_age_days")
     if include_age and min_age not in (None, "", 0, "0"):
         try:
@@ -182,7 +176,6 @@ def _rule_where(rule: dict, include_age: bool = True):
                 debug["age_sql"] = _age_clause(days)
         except (TypeError, ValueError):
             pass
-
     return " AND ".join(clauses), debug
 
 
@@ -225,7 +218,7 @@ def diagnose_dates() -> dict:
         "max_mail_date": parts[6].strip(),
         "db_now": parts[7].strip(),
         "db_current_date": parts[8].strip(),
-        "note": "Altersfilter nutzt SentDate (>=1970), sonst ReceivedDate. ReceivedDate ist oft Importzeit.",
+        "note": "Altersfilter nutzt SentDate (>=1970), sonst ReceivedDate.",
     }
 
 
@@ -233,34 +226,22 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
     where, debug = _rule_where(rule, include_age=True)
     if not where:
         return {"ok": False, "message": (debug or {}).get("error", "from_value fehlt"), "count": 0, "samples": []}
-
     where_no_age, _ = _rule_where(rule, include_age=False)
     matched_no_age = None
     if where_no_age:
         matched_no_age, err0 = _count(where_no_age)
         if matched_no_age is None:
             debug["count_no_age_error"] = err0
-
     count, err = _count(where)
     if count is None:
-        return {
-            "ok": False,
-            "message": err,
-            "count": 0,
-            "samples": [],
-            "debug": debug,
-            "matched_without_age": matched_no_age,
-            "sql": where[:500],
-        }
-
+        return {"ok": False, "message": err, "count": 0, "samples": [], "debug": debug,
+                "matched_without_age": matched_no_age, "sql": where[:500]}
     md = _mail_date_expr()
     sql_s = (
         "SELECT e." + _qident("Id") + ", left(e." + _qident("From") + ",80), "
-        "left(coalesce(e." + _qident("Subject") + ",''),60), "
-        + md + ", e." + _qident("SentDate") + ", e." + _qident("ReceivedDate") + " "
+        "left(coalesce(e." + _qident("Subject") + ",''),60), " + md + ", e." + _qident("SentDate") + ", e." + _qident("ReceivedDate") + " "
         "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e WHERE " + where + " "
-        "ORDER BY " + md + " DESC NULLS LAST "
-        "LIMIT " + str(int(limit)) + ";"
+        "ORDER BY " + md + " DESC NULLS LAST LIMIT " + str(int(limit)) + ";"
     )
     rc2, out2 = _psql(sql_s, tuples_only=True)
     samples = []
@@ -270,23 +251,163 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
                 continue
             parts = line.split("|")
             if len(parts) >= 3:
-                samples.append({
-                    "id": parts[0].strip(),
-                    "from": parts[1].strip(),
-                    "subject": parts[2].strip(),
-                    "date": parts[3].strip() if len(parts) > 3 else "",
-                    "sent": parts[4].strip() if len(parts) > 4 else "",
-                    "received": parts[5].strip() if len(parts) > 5 else "",
-                })
+                samples.append({"id": parts[0].strip(), "from": parts[1].strip(), "subject": parts[2].strip(),
+                                "date": parts[3].strip() if len(parts) > 3 else "",
+                                "sent": parts[4].strip() if len(parts) > 4 else "",
+                                "received": parts[5].strip() if len(parts) > 5 else ""})
+    return {"ok": True, "count": count, "matched_without_age": matched_no_age,
+            "samples": samples, "debug": debug, "where": where[:600]}
 
+
+def _load_account(account_id: int) -> dict | None:
+    sql = (
+        'SELECT e."Id", e."Name", e."EmailAddress", e."ImapServer", e."ImapPort", '
+        'e."Username", e."Password", e."UseSSL", e."Provider" '
+        'FROM %s."MailAccounts" e WHERE e."Id" = %d;'
+    ) % (SCHEMA, int(account_id))
+    rc, out = _psql(sql, tuples_only=True)
+    if rc != 0 or not out.strip():
+        return None
+    parts = out.strip().splitlines()[0].split("|")
+    while len(parts) < 9:
+        parts.append("")
     return {
-        "ok": True,
-        "count": count,
-        "matched_without_age": matched_no_age,
-        "samples": samples,
-        "debug": debug,
-        "where": where[:600],
+        "id": int(parts[0].strip() or 0), "name": parts[1].strip(), "email": parts[2].strip(),
+        "imap_server": parts[3].strip(), "imap_port": int(parts[4].strip() or 0) or None,
+        "username": parts[5].strip(), "password": parts[6].strip(),
+        "use_ssl": str(parts[7].strip()).lower() in ("t", "true", "1", "yes"),
+        "provider": parts[8].strip(),
     }
+
+
+def _fetch_match_meta(where: str, limit: int = 2000) -> list:
+    sql = (
+        'SELECT e."Id", e."MailAccountId", coalesce(e."MessageId",\'\'), '
+        'coalesce(e."FolderName",\'INBOX\'), left(e."From",80) '
+        'FROM %s."ArchivedEmails" e WHERE %s ORDER BY e."Id" LIMIT %d;'
+    ) % (SCHEMA, where, int(limit))
+    rc, out = _psql(sql, tuples_only=True)
+    if rc != 0:
+        append_event("remote_meta_error", out[-200:])
+        return []
+    rows = []
+    for line in out.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("|")
+        while len(parts) < 5:
+            parts.append("")
+        try:
+            rows.append({"id": int(parts[0].strip()), "account_id": int(parts[1].strip() or 0),
+                         "message_id": parts[2].strip(), "folder": parts[3].strip() or "INBOX",
+                         "from": parts[4].strip()})
+        except ValueError:
+            continue
+    return rows
+
+
+def _imap_delete_for_account(acc: dict, items: list) -> dict:
+    import imaplib
+    import ssl
+    server = acc.get("imap_server") or ""
+    if not server:
+        return {"ok": False, "deleted": 0, "message": "kein IMAP-Server"}
+    password = acc.get("password") or ""
+    if password.startswith("enc:"):
+        return {"ok": False, "deleted": 0,
+                "message": "Passwort verschluesselt (enc:) – Remote-Loeschen nicht moeglich"}
+    user = acc.get("username") or acc.get("email") or ""
+    port = acc.get("imap_port") or (993 if acc.get("use_ssl") else 143)
+    deleted = 0
+    errors = []
+    try:
+        if acc.get("use_ssl") or int(port) == 993:
+            M = imaplib.IMAP4_SSL(server, int(port), ssl_context=ssl.create_default_context())
+        else:
+            M = imaplib.IMAP4(server, int(port))
+            try:
+                M.starttls(ssl_context=ssl.create_default_context())
+            except Exception:
+                pass
+        M.login(user, password)
+    except Exception as e:
+        return {"ok": False, "deleted": 0, "message": "IMAP login: %s" % e}
+    by_folder = {}
+    for it in items:
+        by_folder.setdefault((it.get("folder") or "INBOX").strip() or "INBOX", []).append(it)
+    try:
+        for folder, flist in by_folder.items():
+            selected = False
+            for cand in (folder, '"%s"' % folder, "INBOX"):
+                try:
+                    typ, _ = M.select(cand, readonly=False)
+                    if typ == "OK":
+                        selected = True
+                        break
+                except Exception:
+                    continue
+            if not selected:
+                errors.append("Ordner nicht waehlbar: %s" % folder)
+                continue
+            for it in flist:
+                mid = (it.get("message_id") or "").strip()
+                if not mid:
+                    continue
+                variants = [mid, mid.strip("<>")] if mid.startswith("<") else ["<%s>" % mid, mid]
+                for v in variants:
+                    try:
+                        typ, data = M.uid("SEARCH", None, "HEADER", "Message-ID", v)
+                    except Exception:
+                        try:
+                            typ, data = M.search(None, "HEADER", "Message-ID", v)
+                        except Exception as e:
+                            errors.append(str(e)[:120])
+                            continue
+                    if typ != "OK" or not data or not data[0]:
+                        continue
+                    uids = data[0].split()
+                    if not uids:
+                        continue
+                    try:
+                        if isinstance(uids[0], (bytes, bytearray)):
+                            M.uid("STORE", b",".join(uids), "+FLAGS", r"(\Deleted)")
+                        else:
+                            M.store(",".join(str(u) for u in uids), "+FLAGS", r"(\Deleted)")
+                        M.expunge()
+                        deleted += len(uids)
+                        break
+                    except Exception as e:
+                        errors.append("store: %s" % e)
+        try:
+            M.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        errors.append(str(e))
+    return {"ok": True, "deleted": deleted, "errors": errors[:5], "account": acc.get("name") or acc.get("email")}
+
+
+def remote_delete_matched(where: str) -> dict:
+    rows = _fetch_match_meta(where, limit=2000)
+    if not rows:
+        return {"ok": True, "remote_deleted": 0, "accounts": []}
+    by_acc = {}
+    for r in rows:
+        by_acc.setdefault(r["account_id"], []).append(r)
+    results = []
+    total = 0
+    for acc_id, items in by_acc.items():
+        acc = _load_account(acc_id)
+        if not acc:
+            results.append({"account_id": acc_id, "ok": False, "message": "Konto nicht gefunden"})
+            continue
+        r = _imap_delete_for_account(acc, items)
+        r["account_id"] = acc_id
+        results.append(r)
+        total += int(r.get("deleted") or 0)
+        append_event("remote_delete", "account=%s deleted=%s msg=%s" % (
+            acc.get("name"), r.get("deleted"), r.get("message") or "ok"))
+    return {"ok": True, "remote_deleted": total, "accounts": results, "candidates": len(rows)}
 
 
 def apply_rule(rule: dict, dry_run: bool = False) -> dict:
@@ -298,16 +419,17 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
         return {"ok": False, "message": prev.get("message", "preview failed"), "deleted": 0}
     count = int(prev.get("count") or 0)
     if dry_run or count == 0:
-        return {
-            "ok": True,
-            "deleted": 0,
-            "matched": count,
-            "matched_without_age": prev.get("matched_without_age"),
-            "dry_run": dry_run,
-            "samples": prev.get("samples") or [],
-            "debug": debug,
-        }
-
+        return {"ok": True, "deleted": 0, "matched": count,
+                "matched_without_age": prev.get("matched_without_age"),
+                "dry_run": dry_run, "samples": prev.get("samples") or [], "debug": debug,
+                "delete_remote": bool(rule.get("delete_remote"))}
+    remote_info = None
+    if rule.get("delete_remote"):
+        try:
+            remote_info = remote_delete_matched(where)
+        except Exception as e:
+            remote_info = {"ok": False, "message": str(e), "remote_deleted": 0}
+            append_event("remote_delete_error", str(e))
     att = SCHEMA + "." + _qident("EmailAttachments")
     em = SCHEMA + "." + _qident("ArchivedEmails")
     sql = (
@@ -320,15 +442,13 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
     rc, out = _psql(sql)
     if rc != 0:
         append_event("rule_apply_error", "%s: %s" % (rule.get("name"), out[-200:]))
-        return {"ok": False, "message": out[-400:], "deleted": 0, "matched": count}
+        return {"ok": False, "message": out[-400:], "deleted": 0, "matched": count, "remote": remote_info}
     append_event("rule_apply_ok", "rule=%s deleted≈%d" % (rule.get("name") or rule.get("id"), count))
-    return {
-        "ok": True,
-        "deleted": count,
-        "matched": count,
-        "dry_run": False,
-        "samples": prev.get("samples") or [],
-    }
+    result = {"ok": True, "deleted": count, "matched": count, "dry_run": False,
+              "samples": prev.get("samples") or [], "delete_remote": bool(rule.get("delete_remote"))}
+    if remote_info is not None:
+        result["remote"] = remote_info
+    return result
 
 
 def apply_all_rules(dry_run: bool = False) -> dict:
@@ -367,16 +487,11 @@ def apply_all_rules(dry_run: bool = False) -> dict:
 
 def list_rules() -> dict:
     store = load_store()
-    return {
-        "ok": True,
-        "enabled": store.get("enabled", True),
-        "interval_minutes": store.get("interval_minutes", 30),
-        "last_run": store.get("last_run"),
-        "last_result": store.get("last_result"),
-        "rules": store.get("rules") or [],
-        "apply_running": _apply_running,
-        "date_stats": diagnose_dates(),
-    }
+    return {"ok": True, "enabled": store.get("enabled", True),
+            "interval_minutes": store.get("interval_minutes", 30),
+            "last_run": store.get("last_run"), "last_result": store.get("last_result"),
+            "rules": store.get("rules") or [], "apply_running": _apply_running,
+            "date_stats": diagnose_dates()}
 
 
 def upsert_rule(data: dict) -> dict:
@@ -393,6 +508,7 @@ def upsert_rule(data: dict) -> dict:
         "name": name,
         "enabled": bool(data.get("enabled", True)),
         "action": data.get("action") or "delete_local",
+        "delete_remote": bool(data.get("delete_remote", False)),
         "match": {
             "from_mode": (match.get("from_mode") or data.get("from_mode") or "contains").lower(),
             "from_value": from_value,
