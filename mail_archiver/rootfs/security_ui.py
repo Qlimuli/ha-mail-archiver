@@ -43,22 +43,6 @@ def read_log(max_lines=200):
     except Exception as e:
         return str(e)
 
-def list_dir_files(root, limit=200):
-    items = []
-    if not root.exists():
-        return items
-    for p in sorted(root.rglob("*")):
-        if not p.is_file():
-            continue
-        try:
-            st = p.stat()
-            items.append({"path": str(p.relative_to(root)), "size": st.st_size})
-        except OSError:
-            continue
-        if len(items) >= limit:
-            break
-    return items
-
 def read_events(max_n=80):
     out = []
     if not EVENTS.exists():
@@ -197,13 +181,14 @@ HTML = r"""<!DOCTYPE html>
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;margin-bottom:1rem}
 .stat{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:.9rem 1rem}
 .stat .lbl{font-size:.72rem;text-transform:uppercase;color:var(--muted)}.stat .val{font-size:1.25rem;font-weight:700}
-.stat .val.ok{color:var(--ok)}.stat .val.warn{color:var(--warn)}.stat .val.danger{color:var(--danger)}.stat .val.muted{color:var(--muted)}
+.stat .val.ok{color:var(--ok)}.stat .val.warn{color:var(--warn)}.stat .val.danger{color:var(--danger)}
 .scan-box{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:.75rem}
 .path{font-family:ui-monospace,monospace;font-size:.82rem;color:#a5b4fc;word-break:break-all;min-height:1.2em}
 .progress{height:10px;background:#0b1220;border-radius:999px;overflow:hidden;margin:.6rem 0}.progress>div{height:100%;background:linear-gradient(90deg,var(--accent),#60a5fa);transition:width .3s}
 .btn-row{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
 .btnx{border:none;border-radius:10px;padding:.5rem 1rem;font-size:.875rem;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:.4rem}
 .btnx-primary{background:var(--accent);color:#fff}.btnx-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}.btnx-danger{background:var(--danger);color:#fff}
+.btnx:disabled{opacity:.5;cursor:not-allowed}
 .form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.55rem;margin-bottom:.75rem}
 .form-grid input,.form-grid select{background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.45rem .6rem;font-size:.875rem;width:100%}
 .form-check{display:flex;align-items:center;gap:.45rem;margin:.4rem 0;font-size:.875rem;color:var(--muted)}
@@ -213,7 +198,6 @@ HTML = r"""<!DOCTYPE html>
 .badge{display:inline-block;font-size:.68rem;padding:.15rem .4rem;border-radius:6px;font-weight:600}
 .badge-remote{background:#f59e0b33;color:var(--warn)}.badge-age{background:#3b82f633;color:#93c5fd}
 .rule-actions{display:flex;gap:.35rem}.rule-actions button{background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.3rem .55rem;cursor:pointer}
-.rule-actions button.del:hover{border-color:var(--danger);color:var(--danger)}
 .event-list,.log-box{max-height:280px;overflow:auto;font-size:.8rem}
 .event-list .ev{padding:.45rem 0;border-bottom:1px solid var(--border);display:grid;grid-template-columns:140px 110px 1fr;gap:.5rem}
 .event-list .ts{color:var(--muted)}.event-list .kind{color:#93c5fd;font-family:ui-monospace,monospace}
@@ -221,6 +205,13 @@ HTML = r"""<!DOCTYPE html>
 .hidden{display:none!important}
 .edit-banner{background:#1e3a5f;border:1px solid #3b82f6;border-radius:8px;padding:.5rem .75rem;margin-bottom:.75rem;font-size:.85rem;display:none;justify-content:space-between;align-items:center}
 .edit-banner.show{display:flex}.empty{color:var(--muted);font-size:.875rem}.footer-note{color:var(--muted);font-size:.75rem;margin-top:.5rem}
+.sum-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.55rem;margin-bottom:.75rem}
+.sum-card{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:.7rem .8rem}
+.sum-card .n{font-size:1.35rem;font-weight:700}.sum-card .l{font-size:.7rem;color:var(--muted);text-transform:uppercase}
+.acc-row{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:.55rem .75rem;margin-bottom:.4rem;font-size:.85rem}
+.acc-row b{color:#fff}
+.spin{display:inline-block;width:1em;height:1em;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:middle;margin-right:.35rem}
+@keyframes sp{to{transform:rotate(360deg)}}
 @media(max-width:640px){.event-list .ev{grid-template-columns:1fr}}
 </style></head><body>
 <header class="topbar">
@@ -266,11 +257,16 @@ HTML = r"""<!DOCTYPE html>
 <input id="r-from" placeholder="Absender / Domain"/><input id="r-subj" placeholder="Betreff (optional)"/>
 <input type="number" min="0" id="r-age" placeholder="Min. Alter (Tage)"/>
 </div>
-<div class="form-check"><input type="checkbox" id="r-remote"> <label for="r-remote">Auch im Remote-Postfach loeschen (IMAP)</label></div>
+<div class="form-check"><input type="checkbox" id="r-remote" checked> <label for="r-remote">Auch im Remote-Postfach loeschen (IMAP – alle Ordner)</label></div>
 <button class="btnx btnx-primary" id="r-save"><i class="bi bi-check-lg"></i> Speichern</button>
 </div>
 <div class="panel"><h2><i class="bi bi-list-ul"></i> Gespeicherte Regeln</h2><div class="rule-list" id="rules-list"></div></div>
-<div class="panel"><h2><i class="bi bi-braces"></i> Ergebnis</h2><pre class="log-box" id="rules-out">—</pre></div>
+<div class="panel"><h2><i class="bi bi-clipboard-data"></i> Ergebnis / Fortschritt</h2>
+<div id="rules-status" class="footer-note" style="margin-bottom:.75rem">Bereit</div>
+<div id="rules-summary"></div>
+<details style="margin-top:.75rem"><summary style="cursor:pointer;color:var(--muted);font-size:.85rem">Rohdaten (JSON)</summary>
+<pre class="log-box" id="rules-out" style="margin-top:.5rem">—</pre></details>
+</div>
 </section>
 <section id="tab-events" class="hidden"><div class="panel"><h2><i class="bi bi-activity"></i> Ereignisse</h2><div class="event-list" id="ev"></div></div></section>
 <section id="tab-log" class="hidden"><div class="panel"><h2><i class="bi bi-terminal"></i> Scan-Log</h2><pre class="log-box" id="log">—</pre></div></section>
@@ -292,24 +288,32 @@ document.getElementById('scan-bar').style.width=pct+'%';document.getElementById(
 var meta=[];if(total)meta.push(scanned+' / '+total+' Ziele');if(s.last_scan)meta.push('Zuletzt: '+s.last_scan);if(infected)meta.push(infected+' in Quarantäne');
 document.getElementById('scan-meta').textContent=meta.join(' · ');if(s.quarantine_dir)document.getElementById('quar-path').textContent=s.quarantine_dir;}
 function renderEvents(ev){ev=ev||[];var el=document.getElementById('ev');if(!ev.length){el.innerHTML='<div class="empty">Keine Ereignisse</div>';return;}el.innerHTML=ev.slice(0,40).map(function(e){return '<div class="ev"><span class="ts">'+esc(e.ts)+'</span><span class="kind">'+esc(e.kind)+'</span><span>'+esc(e.detail||'')+'</span></div>';}).join('');}
-function clearForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-mode').value='contains';document.getElementById('r-from').value='';document.getElementById('r-subj').value='';document.getElementById('r-age').value='';document.getElementById('r-remote').checked=false;document.getElementById('form-title').textContent='Neue Regel';document.getElementById('edit-banner').classList.remove('show');}
-function fillForm(r){var m=r.match||{};document.getElementById('r-id').value=r.id||'';document.getElementById('r-name').value=r.name||'';document.getElementById('r-mode').value=m.from_mode||'contains';document.getElementById('r-from').value=m.from_value||'';document.getElementById('r-subj').value=m.subject_contains||'';document.getElementById('r-age').value=m.min_age_days||'';document.getElementById('r-remote').checked=!!r.delete_remote;document.getElementById('form-title').textContent='Regel bearbeiten';document.getElementById('edit-banner').classList.add('show');showTab('rules');}
+function clearForm(){document.getElementById('r-id').value='';document.getElementById('r-name').value='';document.getElementById('r-mode').value='contains';document.getElementById('r-from').value='';document.getElementById('r-subj').value='';document.getElementById('r-age').value='';document.getElementById('r-remote').checked=true;document.getElementById('form-title').textContent='Neue Regel';document.getElementById('edit-banner').classList.remove('show');}
+function fillForm(r){var m=r.match||{};document.getElementById('r-id').value=r.id||'';document.getElementById('r-name').value=r.name||'';document.getElementById('r-mode').value=m.from_mode||'contains';document.getElementById('r-from').value=m.from_value||'';document.getElementById('r-subj').value=m.subject_contains||'';document.getElementById('r-age').value=m.min_age_days||'';document.getElementById('r-remote').checked=(r.delete_remote!==false);document.getElementById('form-title').textContent='Regel bearbeiten';document.getElementById('edit-banner').classList.add('show');showTab('rules');}
 function loadRules(){api('/api/rules').then(function(d){document.getElementById('rules-enabled').checked=!!d.enabled;document.getElementById('rules-interval').value=d.interval_minutes||30;var rules=d.rules||[],el=document.getElementById('rules-list');
 if(!rules.length){el.innerHTML='<div class="empty">Keine Regeln</div>';return;}
-el.innerHTML=rules.map(function(r){var m=r.match||{},badges='';if(m.min_age_days)badges+='<span class="badge badge-age">≥'+esc(m.min_age_days)+'d</span> ';if(r.delete_remote)badges+='<span class="badge badge-remote">Remote</span> ';
+el.innerHTML=rules.map(function(r){var m=r.match||{},badges='';if(m.min_age_days)badges+='<span class="badge badge-age">≥'+esc(m.min_age_days)+'d</span> ';if(r.delete_remote!==false)badges+='<span class="badge badge-remote">Remote</span> ';
 return '<div class="rule-item"><div><b>'+esc(r.name)+'</b> '+badges+'<div style="margin-top:.25rem">'+esc(m.from_mode)+': <code>'+esc(m.from_value)+'</code>'+(m.subject_contains?' · '+esc(m.subject_contains):'')+'</div></div><div class="rule-actions"><button type="button" data-edit="'+esc(r.id)+'"><i class="bi bi-pencil"></i></button><button type="button" class="del" data-del="'+esc(r.id)+'"><i class="bi bi-trash"></i></button></div></div>';}).join('');
 el.querySelectorAll('[data-edit]').forEach(function(b){b.onclick=function(){var rule=rules.find(function(x){return x.id===b.getAttribute('data-edit');});if(rule)fillForm(rule);};});
 el.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Regel loeschen?'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:b.getAttribute('data-del')})}).then(function(){clearForm();loadRules();});};});
 }).catch(function(e){document.getElementById('rules-out').textContent=String(e);});}
 function refresh(){api('/api/status').then(function(d){renderStats(d);renderEvents(d.events||[]);document.getElementById('log').textContent=d.log||'(kein Log)';}).catch(function(e){document.getElementById('log').textContent=String(e);});}
+function setBusy(on,msg){var st=document.getElementById('rules-status');var b1=document.getElementById('rules-apply'),b2=document.getElementById('rules-apply-dry');if(b1)b1.disabled=!!on;if(b2)b2.disabled=!!on;if(st)st.innerHTML=on?('<span class="spin"></span> '+(msg||'Bitte warten…')):(msg||'Bereit');}
+function renderSummary(r){var s=r.summary||{},el=document.getElementById('rules-summary');if(!el)return;var dry=!!(s.dry_run||r.dry_run);
+var cards=[{l:dry?'Treffer (Vorschau)':'Lokal gelöscht',n:dry?(s.local_matched||0):(s.local_deleted||r.deleted||0)},{l:'Remote Kandidaten',n:s.remote_candidates||0},{l:'Remote gelöscht',n:s.remote_deleted||0},{l:'Remote nicht gefunden',n:s.remote_not_found||0}];
+var html='<div class="sum-grid">'+cards.map(function(c){return '<div class="sum-card"><div class="n">'+esc(String(c.n))+'</div><div class="l">'+esc(c.l)+'</div></div>';}).join('')+'</div>';
+if((s.rules||[]).length){html+='<div style="font-size:.8rem;color:var(--muted);margin:.4rem 0 .3rem">Regeln</div>';(s.rules||[]).forEach(function(rr){html+='<div class="acc-row"><b>'+esc(rr.name||'?')+'</b> · Treffer: '+(rr.matched!=null?rr.matched:'—')+(dry?'':' · lokal gelöscht: '+(rr.deleted_local||0))+(rr.ok===false?' · <span style="color:var(--danger)">Fehler</span>':'')+'</div>';});}
+if((s.accounts||[]).length){html+='<div style="font-size:.8rem;color:var(--muted);margin:.6rem 0 .3rem">Remote-Konten (IMAP)</div>';(s.accounts||[]).forEach(function(a){html+='<div class="acc-row"><b>'+esc(a.account||'?')+'</b> · gelöscht: <b style="color:var(--ok)">'+(a.remote_deleted||0)+'</b> · Kandidaten: '+(a.candidates||0)+' · nicht gefunden: '+(a.not_found||0)+(a.message?' · <span style="color:var(--warn)">'+esc(a.message)+'</span>':'')+((a.errors&&a.errors.length)?' · <span style="color:var(--danger)">'+esc(a.errors.join('; '))+'</span>':'')+((a.folders_tried&&a.folders_tried.length)?'<div class="footer-note">Ordner: '+esc(a.folders_tried.slice(0,12).join(', '))+'</div>':'')+'</div>';});}
+else if(!dry&&(s.remote_candidates===0)&&(s.local_deleted||r.deleted)){html+='<div class="empty">Kein Remote-Lauf (kein IMAP / Remote aus / keine Message-IDs).</div>';}
+el.innerHTML=html;document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);}
 document.getElementById('btn-scan').onclick=function(){api('/api/scan',{method:'POST'}).then(function(){setTimeout(refresh,800);});};
 document.getElementById('btn-upd').onclick=function(){api('/api/update',{method:'POST'}).then(function(){setTimeout(refresh,1200);});};
 document.getElementById('btn-ref').onclick=function(){refresh();loadRules();};
 document.getElementById('edit-cancel').onclick=clearForm;
 document.getElementById('rules-save-set').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'settings',enabled:document.getElementById('rules-enabled').checked,interval_minutes:parseInt(document.getElementById('rules-interval').value||'30',10)})}).then(loadRules);};
 document.getElementById('r-save').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',rule:{id:document.getElementById('r-id').value||undefined,name:document.getElementById('r-name').value,enabled:true,delete_remote:!!document.getElementById('r-remote').checked,match:{from_mode:document.getElementById('r-mode').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:parseInt(document.getElementById('r-age').value||'0',10)||null}}})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);clearForm();loadRules();});};
-document.getElementById('rules-apply-dry').onclick=function(){api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);});};
-document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails jetzt loeschen?'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);loadRules();});};
+document.getElementById('rules-apply-dry').onclick=function(){setBusy(true,'Vorschau läuft… (kein Löschen)');document.getElementById('rules-summary').innerHTML='';api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})}).then(function(r){renderSummary(r);setBusy(false,r.ok?'Vorschau fertig':'Vorschau mit Fehlern');}).catch(function(e){document.getElementById('rules-out').textContent=String(e);setBusy(false,'Fehler');});};
+document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails jetzt lokal UND remote (IMAP) löschen?'))return;setBusy(true,'Löschen läuft… zuerst Remote (alle IMAP-Ordner), dann lokal. Kann einige Minuten dauern.');document.getElementById('rules-summary').innerHTML='';api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){renderSummary(r);setBusy(false,r.ok?'Löschen abgeschlossen':'Mit Fehlern beendet');loadRules();}).catch(function(e){document.getElementById('rules-out').textContent=String(e);setBusy(false,'Fehler');});};
 refresh();loadRules();setInterval(refresh,4000);
 })();
 </script></body></html>
