@@ -1,8 +1,0 @@
-mail_rules.py was accidentally emptied in an intermediate push.
-
-Restore with:
-  git checkout 2bc26221efe9403f4163d6351b7834d3314b4835 -- mail_archiver/rootfs/mail_rules.py
-
-Then apply improvements described in README 1.3.26 (or re-run agent with smaller patch).
-
-Good commit with full file: 2bc26221efe9403f4163d6351b7834d3314b4835
