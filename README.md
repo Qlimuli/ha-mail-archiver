@@ -1,11 +1,9 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.15**
+Version **1.3.16**
 
-## 1.3.15 – Remote-Löschen in Mailregeln
+## 1.3.16 – Security-Dashboard neu
 
-Option **„Auch im Remote-Postfach löschen (IMAP)“** bei Mailregeln.
-
-Beim Anwenden werden passende Mails per IMAP (Message-ID) auf dem Server gelöscht und danach lokal im Archiv.
-
-Hinweis: Nur IMAP-Konten mit **Klartext-Passwort** in der DB (ohne `enc:`-Verschlüsselung).
+- Modernes Layout mit Tabs: Übersicht, Mailregeln, Ereignisse, Log
+- **Regeln bearbeiten** (Stift-Symbol)
+- Live-Scan: Fortschrittsbalken, aktueller Pfad, Trefferanzahl
