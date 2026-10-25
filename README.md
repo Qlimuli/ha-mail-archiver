@@ -1,10 +1,10 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.11**
+Version **1.3.12**
 
-## 1.3.11 – Altersfilter robuster + Diagnose
+## 1.3.12 – Altersfilter nutzt Sendedatum
 
-- Altersfilter: `ReceivedDate/SentDate <= now - N days`
-- Vorschau liefert `matched_without_age` und `date_stats` (min/max Datum in der DB)
+`ReceivedDate` war oft nur die **Importzeit** (daher alle Mails „wenige Tage alt“).
+Der Altersfilter verwendet jetzt primär **SentDate** (falls gültig ≥ 1970).
 
-Nach Rebuild: **Vorschau** und das JSON prüfen.
+Add-on **1.3.12** neu bauen, Vorschau erneut testen.
