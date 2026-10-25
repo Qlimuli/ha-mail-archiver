@@ -49,6 +49,14 @@ event() {
 
 write_status() {
   local enabled="$1" clamd="$2" last="$3" infected="$4" msg="$5"
+  local scanning="${6:-false}"
+  local current="${7:-}"
+  local scanned="${8:-0}"
+  local total_paths="${9:-0}"
+  msg=${msg//\\/\\\\}
+  msg=${msg//\"/\\\"}
+  current=${current//\\/\\\\}
+  current=${current//\"/\\\"}
   cat > "$STATUS_FILE" <<EOF
 {
   "virus_scan_enabled": $enabled,
@@ -56,7 +64,11 @@ write_status() {
   "last_scan": "$last",
   "infected_moved": $infected,
   "quarantine_dir": "$QUAR_DIR",
-  "message": "$msg"
+  "message": "$msg",
+  "scanning": $scanning,
+  "current_path": "$current",
+  "scanned_paths": $scanned,
+  "total_paths": $total_paths
 }
 EOF
 }
@@ -132,6 +144,8 @@ scan_path() {
   [[ -e "$path" ]] || return 0
   is_true "$VIRUS_SCAN" || return 0
   local out infected=0
+  log "Scanne: $path"
+  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "" 0 "Scanne $path" true "$path" "${SCANNED_N:-0}" "${SCAN_TOTAL:-0}"
   if pgrep -x clamd >/dev/null 2>&1 && command -v clamdscan >/dev/null 2>&1; then
     out=$(clamdscan --fdpass --move="$QUAR_DIR" "$path" 2>&1) || true
   elif command -v clamscan >/dev/null 2>&1; then
@@ -162,28 +176,40 @@ run_full_scan() {
   : > "$SCAN_LOG"
   local total=0
   local n
-  for path in "$IMPORT_DIR" /data/mail-export /tmp/mail-import; do
-    [[ -d "$path" ]] || continue
-    n=$(scan_path "$path" || echo 0)
-    n=$(echo "$n" | tail -1)
-    total=$((total + ${n:-0}))
+  local paths=()
+  local p
+  for p in "$IMPORT_DIR" /data/mail-export /tmp/mail-import; do
+    [[ -d "$p" ]] && paths+=("$p")
   done
   if [[ -d /data ]]; then
     while IFS= read -r -d '' f; do
       case "$f" in
         /data/pg/*|/data/keys/*|/data/security/*|/data/quarantine/*|/data/options.json) continue ;;
       esac
-      n=$(scan_path "$f" || echo 0)
-      n=$(echo "$n" | tail -1)
-      total=$((total + ${n:-0}))
+      paths+=("$f")
     done < <(find /data -maxdepth 2 -type f \( -name '*.eml' -o -name '*.mbox' -o -name '*.zip' -o -name '*.tar' -o -name '*.gz' \) -print0 2>/dev/null)
   fi
+  SCAN_TOTAL=${#paths[@]}
+  SCANNED_N=0
+  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "" 0 "Scan gestartet ($SCAN_TOTAL Ziele)" true "" 0 "$SCAN_TOTAL"
+  for p in "${paths[@]}"; do
+    SCANNED_N=$((SCANNED_N + 1))
+    n=$(scan_path "$p" || echo 0)
+    n=$(echo "$n" | tail -1)
+    total=$((total + ${n:-0}))
+  done
 
   local now
   now=$(date -Iseconds)
-  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$total" "scan completed"
-  event "scan_end" "infected_moved=$total"
-  log "Scan abgeschlossen. Infiziert/verschoben: $total | Quarantäne: $QUAR_DIR"
+  local msg
+  if [[ "$total" -gt 0 ]]; then
+    msg="Scan fertig – $total Treffer in Quarantäne"
+  else
+    msg="Scan fertig – keine Treffer ($SCAN_TOTAL geprüft)"
+  fi
+  write_status true "$(pgrep -x clamd >/dev/null && echo true || echo false)" "$now" "$total" "$msg" false "" "$SCAN_TOTAL" "$SCAN_TOTAL"
+  event "scan_end" "infected_moved=$total scanned=$SCAN_TOTAL"
+  log "Scan abgeschlossen. Infiziert/verschoben: $total | Geprüft: $SCAN_TOTAL | Quarantäne: $QUAR_DIR"
 }
 
 background_loop() {
