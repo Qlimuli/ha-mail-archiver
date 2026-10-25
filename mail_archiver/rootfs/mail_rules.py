@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Mail rules: auto-delete archived mails by sender (and optional subject/age/remote)."""
+"""Mail rules: auto-delete archived mails by sender (subject/age) + optional IMAP remote."""
 from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import uuid
@@ -203,22 +204,16 @@ def diagnose_dates() -> dict:
     )
     rc, out = _psql(sql, tuples_only=True)
     if rc != 0:
-        return {"ok": False, "message": out[-400:], "sql": sql}
+        return {"ok": False, "message": out[-400:]}
     parts = (out.strip().splitlines() or [""])[0].split("|")
     while len(parts) < 9:
         parts.append("")
     return {
-        "ok": True,
-        "total_emails": parts[0].strip(),
-        "min_received": parts[1].strip(),
-        "max_received": parts[2].strip(),
-        "min_sent_valid": parts[3].strip(),
-        "max_sent_valid": parts[4].strip(),
-        "min_mail_date": parts[5].strip(),
-        "max_mail_date": parts[6].strip(),
-        "db_now": parts[7].strip(),
-        "db_current_date": parts[8].strip(),
-        "note": "Altersfilter nutzt SentDate (>=1970), sonst ReceivedDate.",
+        "ok": True, "total_emails": parts[0].strip(),
+        "min_received": parts[1].strip(), "max_received": parts[2].strip(),
+        "min_sent_valid": parts[3].strip(), "max_sent_valid": parts[4].strip(),
+        "min_mail_date": parts[5].strip(), "max_mail_date": parts[6].strip(),
+        "db_now": parts[7].strip(), "db_current_date": parts[8].strip(),
     }
 
 
@@ -229,17 +224,14 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
     where_no_age, _ = _rule_where(rule, include_age=False)
     matched_no_age = None
     if where_no_age:
-        matched_no_age, err0 = _count(where_no_age)
-        if matched_no_age is None:
-            debug["count_no_age_error"] = err0
+        matched_no_age, _ = _count(where_no_age)
     count, err = _count(where)
     if count is None:
-        return {"ok": False, "message": err, "count": 0, "samples": [], "debug": debug,
-                "matched_without_age": matched_no_age, "sql": where[:500]}
+        return {"ok": False, "message": err, "count": 0, "samples": [], "debug": debug}
     md = _mail_date_expr()
     sql_s = (
         "SELECT e." + _qident("Id") + ", left(e." + _qident("From") + ",80), "
-        "left(coalesce(e." + _qident("Subject") + ",''),60), " + md + ", e." + _qident("SentDate") + ", e." + _qident("ReceivedDate") + " "
+        "left(coalesce(e." + _qident("Subject") + ",''),60), " + md + " "
         "FROM " + SCHEMA + "." + _qident("ArchivedEmails") + " e WHERE " + where + " "
         "ORDER BY " + md + " DESC NULLS LAST LIMIT " + str(int(limit)) + ";"
     )
@@ -251,39 +243,52 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
                 continue
             parts = line.split("|")
             if len(parts) >= 3:
-                samples.append({"id": parts[0].strip(), "from": parts[1].strip(), "subject": parts[2].strip(),
-                                "date": parts[3].strip() if len(parts) > 3 else "",
-                                "sent": parts[4].strip() if len(parts) > 4 else "",
-                                "received": parts[5].strip() if len(parts) > 5 else ""})
+                samples.append({"id": parts[0].strip(), "from": parts[1].strip(),
+                                "subject": parts[2].strip(), "date": parts[3].strip() if len(parts) > 3 else ""})
     return {"ok": True, "count": count, "matched_without_age": matched_no_age,
-            "samples": samples, "debug": debug, "where": where[:600]}
+            "samples": samples, "debug": debug}
 
 
 def _load_account(account_id: int) -> dict | None:
     sql = (
-        'SELECT e."Id", e."Name", e."EmailAddress", e."ImapServer", e."ImapPort", '
-        'e."Username", e."Password", e."UseSSL", e."Provider" '
+        "SELECT e."Id"::text || E'\\x1f' || coalesce(e."Name",'') || E'\\x1f' || coalesce(e."EmailAddress",'')"
+        " || E'\\x1f' || coalesce(e."ImapServer",'') || E'\\x1f' || coalesce(e."ImapPort"::text,'') "
+        " || E'\\x1f' || coalesce(e."Username",'') || E'\\x1f' || coalesce(e."Password",'') "
+        " || E'\\x1f' || coalesce(e."UseSSL"::text,'') || E'\\x1f' || coalesce(e."Provider"::text,'') "
+        "FROM %s."MailAccounts" e WHERE e."Id" = %d;"
+    ) % (SCHEMA, int(account_id))
+    # fix quotes - the above is wrong due to escaping. Use simpler:
+    sql = (
+        'SELECT e."Id"::text, coalesce(e."Name",\'\'), coalesce(e."EmailAddress",\'\'), '
+        'coalesce(e."ImapServer",\'\'), coalesce(e."ImapPort"::text,\'\'), '
+        'coalesce(e."Username",\'\'), coalesce(e."Password",\'\'), '
+        'coalesce(e."UseSSL"::text,\'\'), coalesce(e."Provider"::text,\'\') '
         'FROM %s."MailAccounts" e WHERE e."Id" = %d;'
     ) % (SCHEMA, int(account_id))
     rc, out = _psql(sql, tuples_only=True)
     if rc != 0 or not out.strip():
+        append_event("remote_account_error", (out or "empty")[-200:])
         return None
     parts = out.strip().splitlines()[0].split("|")
     while len(parts) < 9:
         parts.append("")
+    try:
+        port = int(parts[4].strip() or 0) or None
+    except ValueError:
+        port = None
     return {
         "id": int(parts[0].strip() or 0), "name": parts[1].strip(), "email": parts[2].strip(),
-        "imap_server": parts[3].strip(), "imap_port": int(parts[4].strip() or 0) or None,
+        "imap_server": parts[3].strip(), "imap_port": port,
         "username": parts[5].strip(), "password": parts[6].strip(),
         "use_ssl": str(parts[7].strip()).lower() in ("t", "true", "1", "yes"),
         "provider": parts[8].strip(),
     }
 
 
-def _fetch_match_meta(where: str, limit: int = 2000) -> list:
+def _fetch_match_meta(where: str, limit: int = 5000) -> list:
     sql = (
         'SELECT e."Id", e."MailAccountId", coalesce(e."MessageId",\'\'), '
-        'coalesce(e."FolderName",\'INBOX\'), left(e."From",80) '
+        'coalesce(e."FolderName",\'INBOX\'), left(e."From",120), left(coalesce(e."Subject",\'\'),120) '
         'FROM %s."ArchivedEmails" e WHERE %s ORDER BY e."Id" LIMIT %d;'
     ) % (SCHEMA, where, int(limit))
     rc, out = _psql(sql, tuples_only=True)
@@ -295,102 +300,219 @@ def _fetch_match_meta(where: str, limit: int = 2000) -> list:
         if not line.strip():
             continue
         parts = line.split("|")
-        while len(parts) < 5:
+        while len(parts) < 6:
             parts.append("")
         try:
             rows.append({"id": int(parts[0].strip()), "account_id": int(parts[1].strip() or 0),
                          "message_id": parts[2].strip(), "folder": parts[3].strip() or "INBOX",
-                         "from": parts[4].strip()})
+                         "from": parts[4].strip(), "subject": parts[5].strip()})
         except ValueError:
             continue
     return rows
 
 
-def _imap_delete_for_account(acc: dict, items: list) -> dict:
+def _parse_imap_list_folders(data) -> list:
+    folders = []
+    if not data:
+        return ["INBOX"]
+    for item in data:
+        if item is None:
+            continue
+        try:
+            s = item.decode("utf-8", errors="replace") if isinstance(item, (bytes, bytearray)) else str(item)
+            if s.count('"') >= 2:
+                name = s.rsplit('"', 2)[-2]
+            else:
+                name = s.split()[-1].strip()
+            name = name.strip().strip('"')
+            if name and name not in folders:
+                folders.append(name)
+        except Exception:
+            continue
+    if "INBOX" not in folders:
+        folders.insert(0, "INBOX")
+    return folders or ["INBOX"]
+
+
+def _mid_variants(message_id: str) -> list:
+    mid = (message_id or "").strip()
+    if not mid:
+        return []
+    bare = mid.strip("<>").strip()
+    variants = []
+    for v in (mid, bare, "<%s>" % bare):
+        if v and v not in variants:
+            variants.append(v)
+    return variants
+
+
+def _imap_connect(acc: dict):
     import imaplib
     import ssl
-    server = acc.get("imap_server") or ""
+    server = (acc.get("imap_server") or "").strip()
     if not server:
-        return {"ok": False, "deleted": 0, "message": "kein IMAP-Server"}
+        raise RuntimeError("kein IMAP-Server am Konto")
     password = acc.get("password") or ""
     if password.startswith("enc:"):
-        return {"ok": False, "deleted": 0,
-                "message": "Passwort verschluesselt (enc:) – Remote-Loeschen nicht moeglich"}
-    user = acc.get("username") or acc.get("email") or ""
-    port = acc.get("imap_port") or (993 if acc.get("use_ssl") else 143)
-    deleted = 0
-    errors = []
+        raise RuntimeError("Passwort verschluesselt (enc:) – Konto-Passwort in MailArchiver neu setzen")
+    user = (acc.get("username") or acc.get("email") or "").strip()
+    if not user:
+        raise RuntimeError("kein Benutzername")
+    port = int(acc.get("imap_port") or (993 if acc.get("use_ssl") else 143))
+    ctx = ssl.create_default_context()
+    if acc.get("use_ssl") or port == 993:
+        M = imaplib.IMAP4_SSL(server, port, ssl_context=ctx)
+    else:
+        M = imaplib.IMAP4(server, port)
+        try:
+            M.starttls(ssl_context=ctx)
+        except Exception:
+            pass
     try:
-        if acc.get("use_ssl") or int(port) == 993:
-            M = imaplib.IMAP4_SSL(server, int(port), ssl_context=ssl.create_default_context())
-        else:
-            M = imaplib.IMAP4(server, int(port))
-            try:
-                M.starttls(ssl_context=ssl.create_default_context())
-            except Exception:
-                pass
         M.login(user, password)
-    except Exception as e:
-        return {"ok": False, "deleted": 0, "message": "IMAP login: %s" % e}
-    by_folder = {}
-    for it in items:
-        by_folder.setdefault((it.get("folder") or "INBOX").strip() or "INBOX", []).append(it)
+    except Exception:
+        email = (acc.get("email") or "").strip()
+        if email and email != user:
+            M.login(email, password)
+        else:
+            raise
+    return M
+
+
+def _imap_uid_delete(M, uids) -> int:
+    if not uids:
+        return 0
+    uid_list = []
+    for u in uids:
+        if isinstance(u, (bytes, bytearray)):
+            uid_list.append(u.decode("ascii", errors="ignore"))
+        else:
+            uid_list.append(str(u))
+    uid_list = [u for u in uid_list if u]
+    if not uid_list:
+        return 0
+    seq = ",".join(uid_list)
+    M.uid("STORE", seq, "+FLAGS", r"(\Deleted)")
     try:
-        for folder, flist in by_folder.items():
-            selected = False
-            for cand in (folder, '"%s"' % folder, "INBOX"):
+        M.uid("EXPUNGE", seq)
+    except Exception:
+        try:
+            M.expunge()
+        except Exception:
+            pass
+    return len(uid_list)
+
+
+def _search_uid_in_folder(M, folder: str, item: dict) -> list:
+    try:
+        typ, _ = M.select('"%s"' % folder.replace('"', ''), readonly=False)
+        if typ != "OK":
+            typ, _ = M.select(folder, readonly=False)
+        if typ != "OK":
+            return []
+    except Exception:
+        try:
+            typ, _ = M.select(folder, readonly=False)
+            if typ != "OK":
+                return []
+        except Exception:
+            return []
+    for v in _mid_variants(item.get("message_id") or ""):
+        try:
+            typ, data = M.uid("SEARCH", None, "HEADER", "Message-ID", v)
+        except Exception:
+            continue
+        if typ == "OK" and data and data[0]:
+            uids = data[0].split()
+            if uids:
+                return uids
+    subj = (item.get("subject") or "").strip()
+    frm = (item.get("from") or "").strip()
+    if subj and len(subj) > 3:
+        try:
+            typ, data = M.uid("SEARCH", None, "HEADER", "Subject", subj[:80])
+            if typ == "OK" and data and data[0]:
+                uids = data[0].split()
+                if len(uids) == 1:
+                    return uids
+                if frm and "@" in frm:
+                    m = re.search(r"[\w.+-]+@[\w.-]+", frm)
+                    addr = m.group(0) if m else frm
+                    typ2, data2 = M.uid("SEARCH", None, "HEADER", "Subject", subj[:80], "FROM", addr)
+                    if typ2 == "OK" and data2 and data2[0]:
+                        uids2 = data2[0].split()
+                        if uids2:
+                            return uids2
+        except Exception:
+            pass
+    return []
+
+
+def _imap_delete_for_account(acc: dict, items: list) -> dict:
+    deleted = 0
+    not_found = 0
+    errors = []
+    tried_folders = []
+    try:
+        M = _imap_connect(acc)
+    except Exception as e:
+        return {"ok": False, "deleted": 0, "message": "IMAP login: %s" % e, "account": acc.get("name")}
+    try:
+        typ, data = M.list()
+        folders = _parse_imap_list_folders(data if typ == "OK" else None)
+        preferred = []
+        for it in items:
+            f = (it.get("folder") or "").strip()
+            if f and f not in preferred:
+                preferred.append(f)
+        ordered = []
+        for f in preferred + folders:
+            if f not in ordered:
+                ordered.append(f)
+        tried_folders = ordered[:40]
+        for it in items:
+            found = False
+            search_order = []
+            if it.get("folder"):
+                search_order.append(it["folder"])
+            for f in ordered:
+                if f not in search_order:
+                    search_order.append(f)
+            for folder in search_order:
+                uids = _search_uid_in_folder(M, folder, it)
+                if not uids:
+                    continue
                 try:
-                    typ, _ = M.select(cand, readonly=False)
-                    if typ == "OK":
-                        selected = True
-                        break
-                except Exception:
-                    continue
-            if not selected:
-                errors.append("Ordner nicht waehlbar: %s" % folder)
-                continue
-            for it in flist:
-                mid = (it.get("message_id") or "").strip()
-                if not mid:
-                    continue
-                variants = [mid, mid.strip("<>")] if mid.startswith("<") else ["<%s>" % mid, mid]
-                for v in variants:
-                    try:
-                        typ, data = M.uid("SEARCH", None, "HEADER", "Message-ID", v)
-                    except Exception:
-                        try:
-                            typ, data = M.search(None, "HEADER", "Message-ID", v)
-                        except Exception as e:
-                            errors.append(str(e)[:120])
-                            continue
-                    if typ != "OK" or not data or not data[0]:
-                        continue
-                    uids = data[0].split()
-                    if not uids:
-                        continue
-                    try:
-                        if isinstance(uids[0], (bytes, bytearray)):
-                            M.uid("STORE", b",".join(uids), "+FLAGS", r"(\Deleted)")
-                        else:
-                            M.store(",".join(str(u) for u in uids), "+FLAGS", r"(\Deleted)")
-                        M.expunge()
-                        deleted += len(uids)
-                        break
-                    except Exception as e:
-                        errors.append("store: %s" % e)
+                    n = _imap_uid_delete(M, uids)
+                    deleted += n
+                    found = True
+                    append_event("remote_delete_ok", "acc=%s folder=%s mid=%s n=%d" % (
+                        acc.get("name"), folder, (it.get("message_id") or "")[:60], n))
+                    break
+                except Exception as e:
+                    errors.append("delete %s: %s" % (folder, e))
+            if not found:
+                not_found += 1
         try:
             M.logout()
         except Exception:
             pass
     except Exception as e:
         errors.append(str(e))
-    return {"ok": True, "deleted": deleted, "errors": errors[:5], "account": acc.get("name") or acc.get("email")}
+        try:
+            M.logout()
+        except Exception:
+            pass
+    return {"ok": True, "deleted": deleted, "not_found": not_found, "errors": errors[:8],
+            "folders_tried": tried_folders[:15], "account": acc.get("name") or acc.get("email"),
+            "candidates": len(items)}
 
 
 def remote_delete_matched(where: str) -> dict:
-    rows = _fetch_match_meta(where, limit=2000)
+    rows = _fetch_match_meta(where, limit=5000)
     if not rows:
-        return {"ok": True, "remote_deleted": 0, "accounts": []}
+        append_event("remote_delete", "no candidates")
+        return {"ok": True, "remote_deleted": 0, "accounts": [], "candidates": 0}
     by_acc = {}
     for r in rows:
         by_acc.setdefault(r["account_id"], []).append(r)
@@ -401,12 +523,17 @@ def remote_delete_matched(where: str) -> dict:
         if not acc:
             results.append({"account_id": acc_id, "ok": False, "message": "Konto nicht gefunden"})
             continue
+        if not acc.get("imap_server"):
+            results.append({"account_id": acc_id, "ok": False,
+                            "message": "Kein IMAP-Server (Provider=%s)" % acc.get("provider"),
+                            "account": acc.get("name")})
+            continue
         r = _imap_delete_for_account(acc, items)
         r["account_id"] = acc_id
         results.append(r)
         total += int(r.get("deleted") or 0)
-        append_event("remote_delete", "account=%s deleted=%s msg=%s" % (
-            acc.get("name"), r.get("deleted"), r.get("message") or "ok"))
+        append_event("remote_delete", "account=%s deleted=%s not_found=%s" % (
+            acc.get("name"), r.get("deleted"), r.get("not_found")))
     return {"ok": True, "remote_deleted": total, "accounts": results, "candidates": len(rows)}
 
 
@@ -419,14 +546,15 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
         return {"ok": False, "message": prev.get("message", "preview failed"), "deleted": 0}
     count = int(prev.get("count") or 0)
     if dry_run or count == 0:
-        return {"ok": True, "deleted": 0, "matched": count,
-                "matched_without_age": prev.get("matched_without_age"),
+        return {"ok": True, "deleted": 0, "matched": count, "matched_without_age": prev.get("matched_without_age"),
                 "dry_run": dry_run, "samples": prev.get("samples") or [], "debug": debug,
-                "delete_remote": bool(rule.get("delete_remote"))}
+                "delete_remote": rule.get("delete_remote") is not False}
+    # Remote standardmaessig an (delete_remote=false schaltet ab)
     remote_info = None
-    if rule.get("delete_remote"):
+    if rule.get("delete_remote") is not False:
         try:
             remote_info = remote_delete_matched(where)
+            append_event("remote_delete_result", str((remote_info or {}).get("remote_deleted")))
         except Exception as e:
             remote_info = {"ok": False, "message": str(e), "remote_deleted": 0}
             append_event("remote_delete_error", str(e))
@@ -445,7 +573,7 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
         return {"ok": False, "message": out[-400:], "deleted": 0, "matched": count, "remote": remote_info}
     append_event("rule_apply_ok", "rule=%s deleted≈%d" % (rule.get("name") or rule.get("id"), count))
     result = {"ok": True, "deleted": count, "matched": count, "dry_run": False,
-              "samples": prev.get("samples") or [], "delete_remote": bool(rule.get("delete_remote"))}
+              "samples": prev.get("samples") or [], "delete_remote": rule.get("delete_remote") is not False}
     if remote_info is not None:
         result["remote"] = remote_info
     return result
@@ -508,7 +636,7 @@ def upsert_rule(data: dict) -> dict:
         "name": name,
         "enabled": bool(data.get("enabled", True)),
         "action": data.get("action") or "delete_local",
-        "delete_remote": bool(data.get("delete_remote", False)),
+        "delete_remote": bool(data.get("delete_remote", True)),
         "match": {
             "from_mode": (match.get("from_mode") or data.get("from_mode") or "contains").lower(),
             "from_value": from_value,
