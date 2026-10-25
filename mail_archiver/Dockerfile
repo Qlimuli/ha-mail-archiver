@@ -4,7 +4,7 @@ LABEL \
     io.hass.name="Mail Archiver" \
     io.hass.description="Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz" \
     io.hass.type="addon" \
-    io.hass.version="1.3.16" \
+    io.hass.version="1.3.17" \
     maintainer="Home Assistant Community"
 
 USER root
@@ -38,8 +38,9 @@ COPY rootfs/run.sh /run.sh
 COPY rootfs/security.sh /security.sh
 COPY rootfs/security_ui.py /security_ui.py
 COPY rootfs/mail_rules.py /mail_rules.py
+COPY rootfs/db_virus_scan.py /db_virus_scan.py
 COPY rootfs/nginx.conf.template /nginx.conf.template
 COPY rootfs/ha-ui-inject.js /ha-ui-inject.js
-RUN chmod a+x /run.sh /security.sh /security_ui.py
+RUN chmod a+x /run.sh /security.sh /security_ui.py /db_virus_scan.py
 
 ENTRYPOINT ["/bin/bash", "/run.sh"]

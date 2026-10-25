@@ -1,9 +1,13 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.16**
+Version **1.3.17**
 
-## 1.3.16 – Security-Dashboard neu
+## 1.3.17 – Vollständiger Datenbank-Virenscan
 
-- Modernes Layout mit Tabs: Übersicht, Mailregeln, Ereignisse, Log
-- **Regeln bearbeiten** (Stift-Symbol)
-- Live-Scan: Fortschrittsbalken, aktueller Pfad, Trefferanzahl
+Der Security-Scan prüft nicht nur Import-Dateien, sondern:
+
+1. Dateisystem (`/data/import` u. a.)
+2. **Alle Anhänge** in der DB (`AttachmentContents` + Legacy)
+3. **Alle E-Mail-Bodies** (Text + HTML)
+
+Treffer werden nach `/data/quarantine` kopiert und im Security-Dashboard angezeigt.
