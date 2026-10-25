@@ -1,5 +1,5 @@
 name: "Mail Archiver"
-version: "1.3.23"
+version: "1.3.24"
 slug: mail_archiver
 description: >-
   Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz.
