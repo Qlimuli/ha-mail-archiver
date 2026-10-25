@@ -1,16 +1,20 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.27**
+Version **1.3.28**
 
-## 1.3.27 – Security-Dashboard 502 behoben
+## 1.3.28 – CPU/RAM optimiert
 
-* Dockerfile kopiert jetzt alle `mail_rules_part*.b64` ins Image
-* Security-UI startet auch, wenn mail_rules fehlt (nur Regeln deaktiviert)
-* Loader sucht Parts in `/` und neben `mail_rules.py`
+* DB-Virenscan **inkrementell** (nur neue Anhänge), max. 800 pro Lauf
+* E-Mail-Bodies standardmäßig **nicht** gescannt
+* ClamAV: MaxThreads=2, Größenlimits, `nice`/`ionice`
+* Scan-Intervall Default **360 Min**, Scan-on-Start **aus**
+* Security-UI Polling 30s, schlankeres Status-JSON
+* Dashboard-Stats alle 15 Min
 
-**Add-on 1.3.27 neu bauen** – danach `/security/` wieder erreichbar.
+## 1.3.27 – Security 502
 
-## 1.3.26 – Remote-Ordner vollständiger erkennen
+`mail_rules_part*.b64` im Image.
 
-* IMAP-LIST robuster, bis 200 Ordner, GMX alle Mailboxen
-* Event-Log `remote_folders`
+## 1.3.26 – Remote-Ordner
+
+IMAP-LIST robuster.

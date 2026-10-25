@@ -1,5 +1,5 @@
 name: "Mail Archiver"
-version: "1.3.27"
+version: "1.3.28"
 slug: mail_archiver
 description: >-
   Lokales E-Mail-Archiv mit integriertem ClamAV-Virenschutz.
@@ -33,8 +33,8 @@ options:
   security_virus_scan: true
   security_quarantine: true
   security_update_signatures_on_start: true
-  security_scan_on_start: true
-  security_scan_interval_minutes: 60
+  security_scan_on_start: false
+  security_scan_interval_minutes: 360
   security_block_dangerous_extensions: true
   security_dangerous_extensions: "exe,dll,bat,cmd,com,scr,ps1,vbs,vbe,js,jse,wsf,wsh,msi,msp,hta,cpl,inf,reg,jar,iso,img,vhd,lnk"
 schema:
