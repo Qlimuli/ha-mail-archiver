@@ -118,14 +118,16 @@ export Authentication__Password="${ADMIN_PASS}"
 export Authentication__SessionTimeoutMinutes=120
 export Authentication__CookieName=MailArchiverAuth
 export Authentication__CookieSameSite=Lax
-export Dashboard__RefreshIntervalMinutes=5
-export Dashboard__CacheSeconds=30
+export Dashboard__RefreshIntervalMinutes=15
+export Dashboard__CacheSeconds=60
 export TimeZone__DisplayTimeZoneId="${TIMEZONE}"
 export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
 export ASPNETCORE_ENVIRONMENT=Production
 export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
+export DB_SCAN_BODIES="${DB_SCAN_BODIES:-false}"
+export DB_SCAN_MAX_PER_RUN="${DB_SCAN_MAX_PER_RUN:-800}"
 
 mkdir -p /data/keys /data/import /data/quarantine /data/security /app/imports
 log "Bereinige Temp-Ordner…"
@@ -140,7 +142,7 @@ log "Temp-Bereinigung fertig"
 ln -sfn /data/import /app/imports 2>/dev/null || true
 ln -sfn /data/import /app/uploads/eml 2>/dev/null || true
 
-# Security: NIE den Boot blockieren (find/ClamAV kann lange dauern → Supervisor-Restart-Loop)
+# Security: NIE den Boot blockieren
 if [ -f /security.sh ]; then
   log "Starte Sicherheitsmodul im Hintergrund…"
   (
@@ -151,7 +153,7 @@ fi
 
 if [ -f /security_ui.py ]; then
   log "Starte Security-Dashboard auf :5002 (/security/)"
-  python3 /security_ui.py &
+  python3 /security_ui.py >> /data/security/security_ui.log 2>&1 &
 fi
 
 if [ ! -f /nginx.conf.template ]; then
