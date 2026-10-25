@@ -37,6 +37,7 @@ RUN apt-get update \
 COPY rootfs/run.sh /run.sh
 COPY rootfs/security.sh /security.sh
 COPY rootfs/security_ui.py /security_ui.py
+COPY rootfs/security_ui_app.py /security_ui_app.py
 COPY rootfs/mail_rules.py /mail_rules.py
 COPY rootfs/db_virus_scan.py /db_virus_scan.py
 COPY rootfs/nginx.conf.template /nginx.conf.template
