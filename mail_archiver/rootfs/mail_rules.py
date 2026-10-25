@@ -251,14 +251,6 @@ def preview_rule(rule: dict, limit: int = 20) -> dict:
 
 def _load_account(account_id: int) -> dict | None:
     sql = (
-        "SELECT e."Id"::text || E'\\x1f' || coalesce(e."Name",'') || E'\\x1f' || coalesce(e."EmailAddress",'')"
-        " || E'\\x1f' || coalesce(e."ImapServer",'') || E'\\x1f' || coalesce(e."ImapPort"::text,'') "
-        " || E'\\x1f' || coalesce(e."Username",'') || E'\\x1f' || coalesce(e."Password",'') "
-        " || E'\\x1f' || coalesce(e."UseSSL"::text,'') || E'\\x1f' || coalesce(e."Provider"::text,'') "
-        "FROM %s."MailAccounts" e WHERE e."Id" = %d;"
-    ) % (SCHEMA, int(account_id))
-    # fix quotes - the above is wrong due to escaping. Use simpler:
-    sql = (
         'SELECT e."Id"::text, coalesce(e."Name",\'\'), coalesce(e."EmailAddress",\'\'), '
         'coalesce(e."ImapServer",\'\'), coalesce(e."ImapPort"::text,\'\'), '
         'coalesce(e."Username",\'\'), coalesce(e."Password",\'\'), '
@@ -549,7 +541,6 @@ def apply_rule(rule: dict, dry_run: bool = False) -> dict:
         return {"ok": True, "deleted": 0, "matched": count, "matched_without_age": prev.get("matched_without_age"),
                 "dry_run": dry_run, "samples": prev.get("samples") or [], "debug": debug,
                 "delete_remote": rule.get("delete_remote") is not False}
-    # Remote standardmaessig an (delete_remote=false schaltet ab)
     remote_info = None
     if rule.get("delete_remote") is not False:
         try:
