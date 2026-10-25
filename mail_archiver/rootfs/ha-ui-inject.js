@@ -4,293 +4,245 @@
   var LARGE_THRESHOLD = 8 * 1024 * 1024;
   var activeXhr = null;
 
-  function go() {
+  function ingressPrefix() {
     try {
-      if (document.getElementById("ha-sec-nav")) return true;
-      var nav = document.querySelector("nav.navbar") || document.querySelector("nav") || document.querySelector("header");
-      if (!nav) return false;
-      if (!/Benutzer|Users/i.test(nav.textContent || "")) return false;
-      var ul = nav.querySelector("ul.navbar-nav") || nav.querySelector("ul");
-      if (!ul) return false;
-      var anchors = [].slice.call(nav.querySelectorAll("a.nav-link,a"));
-      var proto = null;
-      for (var i = 0; i < anchors.length; i++) {
-        var t = (anchors[i].textContent || "").replace(/\s+/g, " ").trim();
-        if (/Protokoll|\bLog\b|Logs/i.test(t)) { proto = anchors[i]; break; }
+      var m = (location.pathname || "").match(/(\/api\/hassio_ingress\/[^/]+)/);
+      if (m) return m[1];
+      var b = document.querySelector("base");
+      if (b && b.href) {
+        var u = new URL(b.href, location.origin);
+        var mm = u.pathname.match(/(\/api\/hassio_ingress\/[^/]+)/);
+        if (mm) return mm[1];
       }
-      var a = document.createElement("a");
-      a.id = "ha-sec-nav";
-      a.className = proto && proto.className ? proto.className.replace(/\bactive\b/g, "").trim() || "nav-link" : "nav-link";
-      if (a.className.indexOf("nav-link") < 0) a.className += " nav-link";
-      a.href = "security/";
-      a.title = "Sicherheit (Admin)";
-      a.innerHTML = '<i class="bi bi-shield-check me-1"></i>Sicherheit';
-      var li = document.createElement("li");
-      li.className = "nav-item";
-      li.appendChild(a);
-      if (proto) {
-        var p = proto.parentElement;
-        if (p && p.tagName === "LI") p.parentElement.insertBefore(li, p.nextSibling);
-        else proto.parentElement.insertBefore(a, proto.nextSibling);
-      } else ul.appendChild(li);
-      return true;
-    } catch (e) { return false; }
-  }
-
-  function start() {
-    if (go()) return;
-    var n = 0;
-    var t = setInterval(function () { if (go() || ++n > 40) clearInterval(t); }, 250);
-    try {
-      var mo = new MutationObserver(function () { if (go()) mo.disconnect(); });
-      mo.observe(document.documentElement, { childList: true, subtree: true });
-      setTimeout(function () { try { mo.disconnect(); } catch (e) {} }, 15000);
     } catch (e) {}
+    return "";
   }
 
-  function fmtSize(b) {
-    if (!b || b <= 0) return "0 B";
-    var k = 1024, s = ["B", "KB", "MB", "GB"], i = Math.floor(Math.log(b) / Math.log(k));
-    return Math.round((b / Math.pow(k, i)) * 100) / 100 + " " + s[i];
-  }
-
-  function securityBase() {
-    var p = location.pathname.replace(/\/+$/, "");
-    var i = p.indexOf("/security");
-    if (i >= 0) return p.slice(0, i + "/security".length);
-    var m = p.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
-    return (m ? m[1] : "") + "/security";
+  function withPrefix(path) {
+    var p = ingressPrefix();
+    if (!p) return path;
+    if (path.indexOf(p) === 0) return path;
+    if (path.charAt(0) !== "/") path = "/" + path;
+    return p + path;
   }
 
   function ensureProgress() {
-    var wrap = document.getElementById("ha-eml-progress-wrap");
-    if (wrap) return wrap;
-    var form = document.getElementById("emlImportForm") || document.querySelector("form");
-    if (!form) return null;
-    wrap = document.createElement("div");
-    wrap.id = "ha-eml-progress-wrap";
-    wrap.className = "mt-3";
-    wrap.style.display = "none";
-    wrap.innerHTML =
-      '<div class="d-flex justify-content-between small mb-1">' +
-      '<span id="ha-eml-progress-label">Upload</span>' +
-      '<span id="ha-eml-progress-pct">0%</span></div>' +
+    var el = document.getElementById("ha-eml-progress-wrap");
+    if (el) return el;
+    el = document.createElement("div");
+    el.id = "ha-eml-progress-wrap";
+    el.style.cssText = "display:none;margin:.75rem 0";
+    el.innerHTML =
       '<div class="progress" style="height:22px">' +
-      '<div id="ha-eml-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%">0%</div></div>' +
-      '<div class="small text-muted mt-1" id="ha-eml-progress-detail"></div>' +
-      '<button type="button" class="btn btn-sm btn-outline-danger mt-2" id="ha-eml-abort" style="display:none">Abbrechen</button>';
-    form.appendChild(wrap);
-    return wrap;
+      '<div id="ha-eml-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width:0%">0%</div>' +
+      "</div>" +
+      '<div id="ha-eml-progress-text" class="small text-muted mt-1"></div>';
+    return el;
   }
 
-  function setProg(pct, label, detail) {
+  function showProgress(pct, text) {
     var wrap = ensureProgress();
-    if (!wrap) return;
     wrap.style.display = "block";
-    pct = Math.max(0, Math.min(100, pct || 0));
     var bar = document.getElementById("ha-eml-progress-bar");
-    var pctEl = document.getElementById("ha-eml-progress-pct");
-    var lab = document.getElementById("ha-eml-progress-label");
-    var det = document.getElementById("ha-eml-progress-detail");
-    if (bar) { bar.style.width = pct + "%"; bar.textContent = Math.round(pct) + "%"; }
-    if (pctEl) pctEl.textContent = Math.round(pct) + "%";
-    if (lab && label) lab.textContent = label;
-    if (det && detail != null) det.textContent = detail;
-  }
-
-  function uploadChunk(file, uploadId, idx, total, onProg) {
-    return new Promise(function (resolve, reject) {
-      var start = idx * CHUNK_SIZE;
-      var end = Math.min(file.size, start + CHUNK_SIZE);
-      var blob = file.slice(start, end);
-      var xhr = new XMLHttpRequest();
-      activeXhr = xhr;
-      xhr.open("POST", securityBase() + "/api/upload-chunk");
-      xhr.setRequestHeader("X-Upload-Id", uploadId);
-      xhr.setRequestHeader("X-File-Name", file.name);
-      xhr.setRequestHeader("X-Chunk-Index", String(idx));
-      xhr.setRequestHeader("X-Chunk-Total", String(total));
-      xhr.upload.onprogress = function (e) {
-        if (!e.lengthComputable) return;
-        var done = start + e.loaded;
-        var pct = (done / file.size) * 100;
-        if (onProg) onProg(pct, done, file.size);
-      };
-      xhr.onload = function () {
-        activeXhr = null;
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try { resolve(JSON.parse(xhr.responseText || "{}")); }
-          catch (e) { resolve({ ok: true }); }
-        } else reject(new Error("Chunk " + (idx + 1) + " HTTP " + xhr.status));
-      };
-      xhr.onerror = function () { activeXhr = null; reject(new Error("Netzwerkfehler Chunk " + (idx + 1))); };
-      xhr.onabort = function () { activeXhr = null; reject(new Error("abgebrochen")); };
-      xhr.send(blob);
-    });
-  }
-
-  async function chunkedUpload(file, onProg) {
-    var total = Math.ceil(file.size / CHUNK_SIZE) || 1;
-    var uploadId = (Math.random().toString(16).slice(2) + Date.now().toString(16)).slice(0, 16);
-    var last = null;
-    for (var i = 0; i < total; i++) {
-      last = await uploadChunk(file, uploadId, i, total, onProg);
-      if (last && last.ok === false) throw new Error(last.message || "Chunk fehlgeschlagen");
+    var tx = document.getElementById("ha-eml-progress-text");
+    if (bar) {
+      bar.style.width = pct + "%";
+      bar.textContent = Math.round(pct) + "%";
     }
-    return last;
+    if (tx) tx.textContent = text || "";
   }
 
-  function accountId() {
-    var el = document.getElementById("accountSelect") || document.querySelector("[name=TargetAccountId]");
-    return el ? el.value : "";
+  function hideProgress() {
+    var wrap = document.getElementById("ha-eml-progress-wrap");
+    if (wrap) wrap.style.display = "none";
   }
 
-  function startImportLocal(pathOrName) {
-    return fetch(securityBase() + "/api/import-local", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ file: pathOrName, account_id: parseInt(accountId() || "0", 10) || 0 })
-    }).then(function (r) { return r.json(); });
+  function go() {
+    try {
+      var nav = document.querySelector(".navbar-nav") || document.querySelector("nav .navbar-nav");
+      if (!nav) return;
+      if (document.getElementById("ha-nav-security")) return;
+      var a = document.createElement("a");
+      a.id = "ha-nav-security";
+      a.className = "nav-link";
+      a.href = withPrefix("/security/");
+      a.innerHTML = '<i class="bi bi-shield-lock"></i> Security';
+      var li = document.createElement("li");
+      li.className = "nav-item";
+      li.appendChild(a);
+      nav.appendChild(li);
+    } catch (e) {}
+  }
+
+  function start() {
+    go();
+    setTimeout(go, 400);
+    setTimeout(go, 1500);
+  }
+
+  function fixIngressPaths() {
+    var p = ingressPrefix();
+    if (!p) return;
+    try {
+      document.querySelectorAll("[data-email-url]").forEach(function (el) {
+        var u = el.getAttribute("data-email-url");
+        if (u && u.charAt(0) === "/" && u.indexOf(p) !== 0) {
+          el.setAttribute("data-email-url", p + u);
+        }
+      });
+      document.querySelectorAll('a[href^="/"]').forEach(function (a) {
+        var h = a.getAttribute("href");
+        if (h && h.indexOf(p) !== 0 && h.indexOf("/api/") !== 0) {
+          a.setAttribute("href", p + h);
+        }
+      });
+    } catch (e) {}
+  }
+
+  function chunkedUpload(file, form) {
+    return new Promise(function (resolve, reject) {
+      var total = file.size;
+      var chunks = Math.ceil(total / CHUNK_SIZE);
+      var uploadId =
+        "u" +
+        Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 10);
+      var idx = 0;
+
+      function next() {
+        if (idx >= chunks) {
+          showProgress(100, "Upload fertig – Import wird gestartet…");
+          resolve(uploadId);
+          return;
+        }
+        var start = idx * CHUNK_SIZE;
+        var end = Math.min(start + CHUNK_SIZE, total);
+        var blob = file.slice(start, end);
+        var xhr = new XMLHttpRequest();
+        activeXhr = xhr;
+        xhr.open("POST", withPrefix("/security/api/upload-chunk"));
+        xhr.setRequestHeader("X-Upload-Id", uploadId);
+        xhr.setRequestHeader("X-Chunk-Index", String(idx));
+        xhr.setRequestHeader("X-Chunk-Total", String(chunks));
+        xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
+        xhr.setRequestHeader("X-File-Size", String(total));
+        xhr.upload.onprogress = function (ev) {
+          if (!ev.lengthComputable) return;
+          var done = start + ev.loaded;
+          var pct = (done / total) * 100;
+          showProgress(pct, "Upload " + Math.round(pct) + "% (" + (idx + 1) + "/" + chunks + ")");
+        };
+        xhr.onload = function () {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            idx++;
+            next();
+          } else {
+            reject(new Error("Chunk-Upload fehlgeschlagen: HTTP " + xhr.status));
+          }
+        };
+        xhr.onerror = function () {
+          reject(new Error("Netzwerkfehler beim Chunk-Upload"));
+        };
+        xhr.send(blob);
+      }
+      next();
+    });
   }
 
   function fixEml() {
     try {
-      var form = document.getElementById("emlImportForm");
-      var input = document.getElementById("emlFileInput") || (form && form.querySelector('input[type=file]'));
-      if (!form || !input) return;
-      if (form.getAttribute("data-ha-eml-fixed") === "1") return;
-      form.setAttribute("data-ha-eml-fixed", "1");
-      var btn = form.querySelector('button[type=submit]') || form.querySelector("button.btn-primary");
+      var form =
+        document.querySelector('form[action*="ImportEml"]') ||
+        document.querySelector('form[action*="Import"]') ||
+        document.querySelector("#importForm");
+      if (!form) return;
+      var fileInput =
+        form.querySelector('input[type="file"]') ||
+        document.querySelector('input[type="file"]');
+      if (!fileInput) return;
+
+      var btn =
+        form.querySelector('button[type="submit"]') ||
+        form.querySelector('input[type="submit"]');
       if (!btn) {
         btn = document.createElement("button");
         btn.type = "submit";
         btn.className = "btn btn-primary";
-        btn.textContent = "Import starten";
+        btn.textContent = "Hochladen";
         form.appendChild(btn);
       }
-      ensureProgress();
-      form.addEventListener("submit", function (e) {
-        var file = input.files && input.files[0];
-        if (!file) return;
-        if (file.size < LARGE_THRESHOLD) return;
-        e.preventDefault();
-        e.stopPropagation();
-        var origHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = "Hochladen…";
-        setProg(0, "Upload", "0 / " + fmtSize(file.size));
-        var abortEl = document.getElementById("ha-eml-abort");
-        if (abortEl) {
-          abortEl.style.display = "inline-block";
-          abortEl.onclick = function () { try { if (activeXhr) activeXhr.abort(); } catch (err) {} };
-        }
-        chunkedUpload(file, function (pct, done, total) {
-          setProg(pct, "Upload " + Math.round(pct) + "%", fmtSize(done) + " / " + fmtSize(total));
-          btn.innerHTML = "Hochladen… " + Math.round(pct) + "%";
-        }).then(function (res) {
-          setProg(100, "Upload fertig", "Starte Import…");
-          var name = (res && (res.filename || res.path)) || file.name;
-          return startImportLocal(name);
-        }).then(function (imp) {
-          var bar = document.getElementById("ha-eml-progress-bar");
-          if (bar) { bar.classList.remove("progress-bar-animated"); bar.classList.add("bg-success"); }
-          setProg(100, "Import gestartet", (imp && imp.message) || "OK");
-          if (abortEl) abortEl.style.display = "none";
-          var redir = (imp && imp.redirect) || "/Emails/Jobs";
-          setTimeout(function () { window.location.href = withPrefix(redir); }, 800);
-        }).catch(function (err) {
-          var bar = document.getElementById("ha-eml-progress-bar");
-          var msg = (err && err.message) || String(err);
-          setProg(0, msg === "abgebrochen" ? "Abgebrochen" : "Upload fehlgeschlagen", msg);
-          if (bar) { bar.classList.remove("bg-success"); bar.classList.add("bg-danger"); }
-          btn.disabled = false; btn.innerHTML = origHtml;
-          if (abortEl) abortEl.style.display = "none";
-        });
-      }, true);
+
+      var wrap = ensureProgress();
+      if (!wrap.parentNode) {
+        if (btn.parentNode) btn.parentNode.insertBefore(wrap, btn.nextSibling);
+        else form.appendChild(wrap);
+      }
+
+      if (form.dataset.haChunkBound === "1") return;
+      form.dataset.haChunkBound = "1";
+
+      form.addEventListener(
+        "submit",
+        function (ev) {
+          var f = fileInput.files && fileInput.files[0];
+          if (!f) return;
+          if (f.size < LARGE_THRESHOLD) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          showProgress(0, "Starte Upload…");
+          chunkedUpload(f, form)
+            .then(function (uploadId) {
+              return fetch(withPrefix("/security/api/assemble-and-import"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  uploadId: uploadId,
+                  fileName: f.name,
+                  accountId: (form.querySelector('[name*="Account"]') || {}).value || null,
+                }),
+              });
+            })
+            .then(function (r) {
+              return r.json().catch(function () {
+                return {};
+              });
+            })
+            .then(function (data) {
+              showProgress(100, (data && data.message) || "Import gestartet");
+              if (data && data.redirect) location.href = withPrefix(data.redirect);
+              else location.href = withPrefix("/Emails/Jobs");
+            })
+            .catch(function (err) {
+              showProgress(0, String(err && err.message ? err.message : err));
+              alert("Upload fehlgeschlagen: " + (err && err.message ? err.message : err));
+            });
+        },
+        true
+      );
     } catch (e) {}
   }
 
-  function ingressPrefix() {
-    var m = (location.pathname || "").match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
-    return m ? m[1] : "";
-  }
-  function withPrefix(url) {
-    if (!url || typeof url !== "string") return url;
-    var p = ingressPrefix();
-    if (!p) return url;
-    if (url.indexOf("http://") === 0 || url.indexOf("https://") === 0) return url;
-    if (url.charAt(0) !== "/") return url;
-    if (url.indexOf(p) === 0) return url;
-    if (url.indexOf("/api/hassio_ingress/") === 0) return url;
-    return p + url;
-  }
-  function fixIngressPaths() {
-    var p = ingressPrefix();
-    if (!p) return;
-    document.querySelectorAll("[data-email-url]").forEach(function (el) {
-      var u = el.getAttribute("data-email-url");
-      if (u) el.setAttribute("data-email-url", withPrefix(u));
-    });
-    document.querySelectorAll('a[href^="/"]').forEach(function (a) {
-      var h = a.getAttribute("href");
-      if (h) a.setAttribute("href", withPrefix(h));
-    });
-    document.querySelectorAll("form[action^='/']").forEach(function (f) {
-      var a = f.getAttribute("action");
-      if (a) f.setAttribute("action", withPrefix(a));
-    });
-  }
-
-  document.addEventListener("click", function (e) {
-    var row = e.target && e.target.closest && e.target.closest(".email-row");
-    if (!row) return;
-    if (e.target.closest(".email-row-no-nav, a, button, input, label, .form-check")) return;
-    var url = row.getAttribute("data-email-url");
-    if (!url) return;
-    e.preventDefault();
-    e.stopPropagation();
-    window.location.href = withPrefix(url);
-  }, true);
-
   function injectMobileCss() {
     if (document.getElementById("ha-mobile-css")) return;
-    var vp = document.querySelector('meta[name="viewport"]');
-    if (!vp) {
-      vp = document.createElement("meta");
-      vp.name = "viewport";
-      document.head.appendChild(vp);
-    }
-    vp.content = "width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover";
-
-    var underIngress = /\/api\/hassio_ingress\//.test(location.pathname || "");
-    var coarse = false, narrow = false;
-    try { coarse = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches); } catch (e) {}
-    try { narrow = !!(window.matchMedia && window.matchMedia("(max-width: 992px)").matches); } catch (e) {}
-    var forceMobile = underIngress || coarse || narrow || (typeof screen !== "undefined" && screen.width && screen.width <= 992);
-
     var s = document.createElement("style");
     s.id = "ha-mobile-css";
+    var underIngress = !!ingressPrefix();
+    var forceMobile =
+      underIngress ||
+      window.matchMedia("(max-width: 900px)").matches ||
+      /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || "");
     var css = [
-      "html{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}",
-      "body{overflow-x:hidden!important;max-width:100vw!important}"
+      "html{ -webkit-text-size-adjust:100%; text-size-adjust:100%; }",
+      "body{overflow-x:hidden;max-width:100vw;}",
+      ".container,.container-fluid{max-width:100%!important;padding-left:.65rem!important;padding-right:.65rem!important;}",
     ];
     if (forceMobile) {
       css.push(
-        "nav.navbar{padding:.3rem .55rem!important;min-height:46px!important}",
-        "nav.navbar .navbar-brand{font-size:.95rem!important;max-width:50vw!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}",
-        "nav.navbar .navbar-toggler{padding:.3rem .45rem!important}",
-        ".container,.container-fluid,main,.content,.page-content,.container-lg,.container-md,.container-sm{padding-left:.65rem!important;padding-right:.65rem!important;max-width:100%!important}",
-        "h1,.h1{font-size:1.25rem!important;margin-bottom:.6rem!important;line-height:1.25!important}",
-        "h2,.h2{font-size:1.1rem!important}",
-        "h3,.h3{font-size:1rem!important}",
-        ".row>[class*=col-]{margin-bottom:.55rem!important;padding-left:.4rem!important;padding-right:.4rem!important}",
-        ".card{border-radius:.7rem!important}",
-        ".card-body{padding:.75rem!important}",
-        ".card .display-4,.card .display-5,.card .fs-1,.card .fs-2,.card h2,.card .display-6{font-size:1.45rem!important;line-height:1.15!important}",
-        ".email-card-mobile,.email-row.card,.card.mb-3{margin-bottom:.55rem!important;border-radius:.7rem!important}",
-        ".email-card-mobile .card-body,.email-row.card .card-body{padding:.75rem!important}",
-        ".email-card-mobile .btn,.email-card-actions .btn,.btn{min-height:42px!important;border-radius:.5rem!important}",
+        ".stat-card-modern .stat-value{font-size:1.35rem!important}",
+        ".stat-card-modern .stat-label{font-size:.78rem!important}",
+        ".stat-card-modern .stat-icon{font-size:1.25rem!important}",
+        ".card{margin-bottom:.65rem!important}",
+        ".btn{min-height:40px!important}",
         ".btn-sm{min-height:38px!important}",
         ".btn.w-100,.d-grid .btn{margin-bottom:.35rem!important}",
         ".form-control,.form-select,input.form-control,select.form-select,textarea.form-control{min-height:42px!important;font-size:16px!important}",
@@ -319,9 +271,28 @@
     } catch (e) {}
   }
 
+  function setupDashboardAutoRefresh() {
+    try {
+      if (!document.querySelector(".stat-card-modern, .stat-value, [data-count-target]")) return;
+      var INTERVAL_MS = 60000;
+      var last = Date.now();
+      function maybeReload() {
+        if (document.visibilityState !== "visible") return;
+        if (Date.now() - last < INTERVAL_MS - 500) return;
+        last = Date.now();
+        try { location.reload(); } catch (e) {}
+      }
+      setInterval(maybeReload, INTERVAL_MS);
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible" && Date.now() - last >= INTERVAL_MS) maybeReload();
+      });
+    } catch (e) {}
+  }
+
   function startAll() {
     injectMobileCss();
     fixIngressPaths();
+    setupDashboardAutoRefresh();
     start(); fixEml();
     setTimeout(fixEml, 800);
     setTimeout(fixEml, 2500);
