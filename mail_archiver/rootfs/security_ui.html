@@ -1,183 +1,436 @@
 <!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Sicherheit · MailArchiver</title>
 <style>
-:root{--bg:#0b1220;--panel:#121a2b;--card:#182235;--border:#2a3a55;--text:#e8eef7;--muted:#8b9bb4;--accent:#3b82f6;--ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;--radius:14px}
-*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
-.wrap{max-width:1100px;margin:0 auto;padding:1.25rem}
-h1{font-size:1.45rem;margin:0 0 1rem}h2{font-size:1.05rem;margin:0 0 .75rem}
-.tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem}
-.tab{background:var(--card);border:1px solid var(--border);color:var(--text);padding:.45rem .9rem;border-radius:999px;cursor:pointer}
+:root{
+  --bg:#0b1220;--panel:#121a2b;--card:#182235;--border:#2a3a55;
+  --text:#e8eef7;--muted:#8b9bb4;--accent:#3b82f6;--ok:#22c55e;--warn:#f59e0b;--danger:#ef4444;
+  --radius:12px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.4}
+.wrap{max-width:960px;margin:0 auto;padding:1rem}
+h1{font-size:1.35rem;margin:0 0 .75rem;font-weight:650}
+h2{font-size:1rem;margin:0 0 .5rem;font-weight:600}
+.tabs{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.85rem}
+.tab{background:var(--card);border:1px solid var(--border);color:var(--text);padding:.4rem .85rem;border-radius:999px;cursor:pointer;font-size:.9rem}
 .tab.active{background:var(--accent);border-color:var(--accent)}
-.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:1rem}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.75rem}
-.stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.85rem}
-.stat b{display:block;font-size:1.35rem}.stat span{color:var(--muted);font-size:.8rem}
-.btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:.55rem 1rem;cursor:pointer;margin:.2rem .2rem .2rem 0}
-.btn.secondary{background:#243044}.btn.danger{background:var(--danger)}.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
-.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
-input,select,textarea{background:#0d1524;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.45rem .6rem;width:100%;max-width:420px}
-label{display:block;color:var(--muted);font-size:.8rem;margin:.35rem 0 .15rem}
-.rule{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:.75rem;margin:.4rem 0}
-.rule .meta{color:var(--muted);font-size:.85rem}
-pre{background:#0a101c;border:1px solid var(--border);border-radius:10px;padding:.75rem;overflow:auto;max-height:320px;font-size:.78rem}
-.acc-row{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.6rem .75rem;margin:.35rem 0}
-.busy{opacity:.7;pointer-events:none}
-.badge{display:inline-block;padding:.15rem .45rem;border-radius:999px;font-size:.75rem;background:#243044;margin-left:.35rem}
-.badge.ok{background:rgba(34,197,94,.2);color:var(--ok)}.badge.warn{background:rgba(245,158,11,.2);color:var(--warn)}
-@media (max-width:640px){.wrap{padding:.75rem}.stat b{font-size:1.1rem}}
-</style></head><body><div class="wrap">
-<h1>Sicherheit</h1>
-<div class="tabs">
-<button class="tab active" data-tab="overview">Übersicht</button>
-<button class="tab" data-tab="rules">Mailregeln</button>
-<button class="tab" data-tab="events">Ereignisse</button>
-<button class="tab" data-tab="log">Log</button>
+.panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem;margin-bottom:.85rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.55rem}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.7rem .75rem}
+.stat b{display:block;font-size:1.2rem;word-break:break-word}
+.stat span{color:var(--muted);font-size:.75rem}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:9px;padding:.5rem .9rem;cursor:pointer;font-size:.9rem;margin:.15rem .2rem .15rem 0}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn.secondary{background:#243044}
+.btn.danger{background:var(--danger)}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+.row{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}
+input,select,textarea{background:#0d1524;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.42rem .55rem;width:100%;max-width:380px;font-size:16px}
+label{display:block;color:var(--muted);font-size:.78rem;margin:.3rem 0 .12rem}
+.meta{color:var(--muted);font-size:.82rem}
+.rule,.acc-row{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:.65rem .75rem;margin:.35rem 0}
+.badge{display:inline-block;padding:.12rem .4rem;border-radius:999px;font-size:.72rem;background:#243044;margin-left:.25rem;vertical-align:middle}
+.badge.ok{background:rgba(34,197,94,.18);color:var(--ok)}
+.badge.warn{background:rgba(245,158,11,.18);color:var(--warn)}
+.badge.danger{background:rgba(239,68,68,.18);color:var(--danger)}
+pre{background:#0a101c;border:1px solid var(--border);border-radius:10px;padding:.65rem;overflow:auto;max-height:280px;font-size:.76rem;margin:.4rem 0 0}
+.sep{height:1px;background:var(--border);margin:.75rem 0}
+.muted{color:var(--muted)}
+.err{color:var(--danger)}
+.okc{color:var(--ok)}
+@media (max-width:640px){.wrap{padding:.65rem}.stat b{font-size:1.05rem}.btn{min-height:40px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sicherheit</h1>
+  <div class="tabs">
+    <button class="tab active" data-tab="overview">Übersicht</button>
+    <button class="tab" data-tab="rules">Mailregeln</button>
+    <button class="tab" data-tab="events">Ereignisse</button>
+    <button class="tab" data-tab="log">Scan-Log</button>
+  </div>
+
+  <section id="tab-overview">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;margin-bottom:.55rem">
+        <h2 style="margin:0">Virenschutz</h2>
+        <span id="status-pill" class="badge">—</span>
+      </div>
+      <div class="row" style="margin-bottom:.55rem">
+        <button class="btn" id="btn-scan">Scan starten</button>
+        <button class="btn secondary" id="btn-update">Signaturen aktualisieren</button>
+      </div>
+      <div class="grid" id="status-grid"></div>
+      <div id="scan-progress" class="meta" style="margin-top:.55rem"></div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;margin-bottom:.4rem">
+        <h2 style="margin:0">Mailregeln – letzter Lauf</h2>
+        <span id="rules-run-pill" class="badge">—</span>
+      </div>
+      <div id="overview-rules-run" class="meta">Lade…</div>
+    </div>
+  </section>
+
+  <section id="tab-rules" style="display:none">
+    <div class="panel">
+      <div class="row">
+        <button class="btn secondary" id="rules-apply-dry">Vorschau</button>
+        <button class="btn danger" id="rules-apply">Jetzt löschen</button>
+        <button class="btn ghost" id="rules-reload">Aktualisieren</button>
+        <span id="rules-busy" class="badge">Bereit</span>
+      </div>
+      <div class="sep"></div>
+      <h2>Zeitplan</h2>
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label>Intervall (Minuten, min. 5)</label>
+          <input id="rules-interval" type="number" min="5" max="10080" step="5" style="max-width:110px">
+        </div>
+        <div>
+          <label>Automatik</label>
+          <select id="rules-enabled" style="max-width:120px">
+            <option value="true">an</option>
+            <option value="false">aus</option>
+          </select>
+        </div>
+        <button class="btn secondary" id="rules-save-settings">Speichern</button>
+        <span id="rules-schedule-info" class="meta"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Ergebnis aktueller / letzter Lauf</h2>
+      <div id="rules-last-run-body" class="meta">Noch kein Lauf.</div>
+      <div id="rules-summary" style="margin-top:.5rem"></div>
+      <pre id="rules-out" style="display:none">—</pre>
+    </div>
+
+    <div class="panel">
+      <h2>Regeln</h2>
+      <div id="rules-list"></div>
+      <details style="margin-top:.75rem">
+        <summary>Neue / bearbeiten</summary>
+        <label>Name</label><input id="r-name" placeholder="Regelname">
+        <label>Absender</label><input id="r-from" placeholder="newsletter@example.com">
+        <label>Betreff enthält (optional)</label><input id="r-subj">
+        <label>Min. Alter in Tagen (optional)</label><input id="r-age" type="number" min="0" placeholder="30">
+        <label style="margin-top:.35rem"><input type="checkbox" id="r-remote" checked> Auch remote (IMAP) löschen</label>
+        <div class="row" style="margin-top:.45rem">
+          <button class="btn" id="r-save">Regel speichern</button>
+          <button class="btn ghost" id="r-cancel" style="display:none">Abbrechen</button>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section id="tab-events" style="display:none">
+    <div class="panel">
+      <h2>Ereignisse</h2>
+      <div id="events-list" class="meta">—</div>
+    </div>
+  </section>
+
+  <section id="tab-log" style="display:none">
+    <div class="panel">
+      <h2>ClamAV Scan-Log</h2>
+      <pre id="log-out">—</pre>
+    </div>
+  </section>
 </div>
 
-<section id="tab-overview" class="panel">
-<div class="row" style="margin-bottom:.75rem">
-<button class="btn" id="btn-scan">Scan starten</button>
-<button class="btn secondary" id="btn-update">Signaturen aktualisieren</button>
-<span id="status-pill" class="badge">—</span>
-</div>
-<div class="grid" id="status-grid"></div>
-<div id="scan-progress" style="margin-top:.75rem;color:var(--muted);font-size:.9rem"></div>
-</section>
-
-<section id="tab-rules" class="panel" style="display:none">
-<div class="row">
-<button class="btn secondary" id="rules-apply-dry">Vorschau</button>
-<button class="btn danger" id="rules-apply">Jetzt löschen</button>
-<button class="btn ghost" id="rules-reload">Aktualisieren</button>
-<span id="rules-busy" class="badge">Bereit</span>
-</div>
-<div class="panel" style="margin:.75rem 0;padding:.75rem;background:var(--card)">
-<h2 style="margin:0 0 .5rem">Zeitplan (automatisch)</h2>
-<div class="row" style="align-items:flex-end;gap:.75rem">
-<div>
-<label>Intervall (Minuten)</label>
-<input id="rules-interval" type="number" min="5" max="10080" step="5" style="max-width:120px" title="Mindestens 5 Minuten">
-</div>
-<div>
-<label>Automatik</label>
-<select id="rules-enabled" style="max-width:140px">
-<option value="true">an</option>
-<option value="false">aus</option>
-</select>
-</div>
-<button class="btn secondary" id="rules-save-settings">Zeitplan speichern</button>
-<span id="rules-schedule-info" class="meta" style="color:var(--muted)"></span>
-</div>
-<p class="meta" style="margin:.5rem 0 0;color:var(--muted);font-size:.85rem">Letzter Lauf und Ergebnis erscheinen unten. Intervall gilt für den Hintergrund-Loop (ohne manuelle Vorschau).</p>
-</div>
-<div id="rules-last-run" class="panel" style="margin:.75rem 0;padding:.75rem;background:var(--card);display:none">
-<h2 style="margin:0 0 .5rem">Letzter / aktueller Lauf</h2>
-<div id="rules-last-run-body"></div>
-</div>
-<div id="rules-summary" style="margin:.75rem 0"></div>
-<div id="rules-list"></div>
-<details style="margin-top:1rem"><summary>Neue Regel</summary>
-<label>Name</label><input id="r-name" placeholder="Regelname">
-<label>Absender enthält</label><input id="r-from" placeholder="newsletter@example.com">
-<label>Betreff enthält (optional)</label><input id="r-subj">
-<label>Min. Alter (Tage, optional)</label><input id="r-age" type="number" min="0" placeholder="30">
-<label><input type="checkbox" id="r-remote" checked> Auch remote (IMAP) löschen</label>
-<div class="row" style="margin-top:.5rem"><button class="btn" id="r-save">Speichern</button></div>
-</details>
-<pre id="rules-out">—</pre>
-</section>
-
-<section id="tab-events" class="panel" style="display:none"><div id="events-list"></div></section>
-<section id="tab-log" class="panel" style="display:none"><pre id="log-out">—</pre></section>
-</div>
 <script>
-function base(){var p=location.pathname.replace(/\/+$/,'');var i=p.lastIndexOf('/security');return i>=0?p.slice(0,i+9):'/security';}
+(function(){
+function base(){
+  var p=location.pathname.replace(/\/+$/,'');
+  var i=p.lastIndexOf('/security');
+  return i>=0?p.slice(0,i+9):'/security';
+}
 var B=base();
-function api(p,o){return fetch(B+p,o||{}).then(function(r){return r.text().then(function(t){try{return JSON.parse(t);}catch(e){return {ok:false,message:'Keine JSON ('+r.status+'): '+(t||'').slice(0,120)};}});});}
+
+function api(path,opts){
+  return fetch(B+path,opts||{}).then(function(r){
+    return r.text().then(function(t){
+      try{return JSON.parse(t);}
+      catch(e){return {ok:false,message:'Keine JSON ('+r.status+'): '+(t||'').slice(0,120)};}
+    });
+  });
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'})[c];});}
-document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('active');});t.classList.add('active');['overview','rules','events','log'].forEach(function(id){document.getElementById('tab-'+id).style.display=(t.dataset.tab===id)?'':'none';});if(t.dataset.tab==='rules')loadRules();if(t.dataset.tab==='events'||t.dataset.tab==='log'||t.dataset.tab==='overview')refreshStatus();};});
-function setBusy(on,msg){var el=document.getElementById('rules-busy');if(el){el.textContent=msg||(on?'Läuft…':'Bereit');el.className='badge'+(on?' warn':'');}}
-function renderSummary(r){
-var s=r.summary||{},el=document.getElementById('rules-summary');if(!el)return;
-if(r.ok===false&&r.message&&!s.rules){el.innerHTML='<div class="acc-row" style="border-color:var(--danger)"><b>Hinweis</b>: '+esc(r.message)+'</div>';document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);return;}
-var dry=!!(s.dry_run||r.dry_run);
-var html='<div class="grid">';
-html+='<div class="stat"><b>'+esc(s.local_deleted||r.deleted||0)+'</b><span>Lokal gelöscht</span></div>';
-html+='<div class="stat"><b>'+esc(s.remote_candidates||0)+'</b><span>Remote Kandidaten</span></div>';
-html+='<div class="stat"><b>'+esc(s.remote_deleted||0)+'</b><span>Remote gelöscht</span></div>';
-html+='<div class="stat"><b>'+esc(s.local_matched||0)+'</b><span>Lokal Treffer'+(dry?' (Vorschau)':'')+'</span></div></div>';
-if(s.accounts&&s.accounts.length){html+='<h2 style="margin-top:1rem">Remote-Konten</h2>';s.accounts.forEach(function(a){html+='<div class="acc-row"><b>'+esc(a.account)+'</b> · gelöscht: '+esc(a.remote_deleted||0)+' · Kandidaten: '+esc(a.candidates||a.matched||0);if(a.folders&&a.folders.length){html+='<div class="meta">'+a.folders.map(function(f){return esc(f.folder)+': '+esc(f.count);}).join(' · ')+'</div>';}if(a.scanned_folders&&a.scanned_folders.length){html+='<div class="meta">gescannt: '+a.scanned_folders.map(esc).join(', ')+'</div>';}html+='</div>';});}
-if(s.rules&&s.rules.length){html+='<h2 style="margin-top:1rem">Regeln</h2>';s.rules.forEach(function(rr){html+='<div class="acc-row">'+esc(rr.name)+' · Treffer: '+esc(rr.matched||0)+' · remote: '+esc(rr.remote_matched||0)+'</div>';});}
-el.innerHTML=html;document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);}
-function pollApply(deadline){deadline=deadline||(Date.now()+30*60*1000);return api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply_status'})}).then(function(r){var st=(r&&r.status)||{};var msg=st.message||(st.running?'Läuft…':'');if(st.current_rule)msg=(msg?msg+' · ':'')+st.current_rule;if(st.remote_folder)msg+=' · '+st.remote_folder;if(st.progress!=null)msg+=' ('+st.progress+'%)';setBusy(!!st.running,msg||'Bereit');if(st.summary)renderSummary({ok:true,dry_run:!!st.dry_run,summary:st.summary,deleted:(st.summary.local_deleted||0)});if(st.result)renderSummary(st.result);if(st.running&&Date.now()<deadline){return new Promise(function(res){setTimeout(function(){res(pollApply(deadline));},1500);});}setBusy(false,st.phase==='error'?(st.message||'Fehler'):(st.phase==='done'?'Fertig':'Bereit'));if(st.result)renderSummary(st.result);loadRules();return r;});}
+function showTab(id){
+  ['overview','rules','events','log'].forEach(function(t){
+    var el=document.getElementById('tab-'+t);
+    if(el) el.style.display=(t===id)?'':'none';
+  });
+  document.querySelectorAll('.tab').forEach(function(x){x.classList.toggle('active',x.dataset.tab===id);});
+  if(id==='rules') loadRules();
+  if(id==='overview'||id==='events'||id==='log') refreshStatus();
+}
+document.querySelectorAll('.tab').forEach(function(t){
+  t.onclick=function(){showTab(t.dataset.tab);};
+});
+
+function setBusy(on,msg){
+  var el=document.getElementById('rules-busy');
+  if(!el) return;
+  el.textContent=msg||(on?'Läuft…':'Bereit');
+  el.className='badge'+(on?' warn':'');
+}
+
+function fmtRunSummary(sum, lr, last, st){
+  sum=sum||{};
+  var dry=!!(sum.dry_run||(lr&&lr.dry_run)||(st&&st.dry_run));
+  var html='<div class="grid">';
+  html+='<div class="stat"><b>'+esc(last||(st&&st.ts)||'—')+'</b><span>Zeit (UTC)</span></div>';
+  html+='<div class="stat"><b>'+esc(sum.local_deleted!=null?sum.local_deleted:(lr&&lr.deleted)||0)+'</b><span>Lokal gelöscht</span></div>';
+  html+='<div class="stat"><b>'+esc(sum.remote_deleted!=null?sum.remote_deleted:0)+'</b><span>Remote gelöscht</span></div>';
+  html+='<div class="stat"><b>'+esc(sum.remote_candidates!=null?sum.remote_candidates:0)+'</b><span>Remote Kandidaten</span></div>';
+  html+='<div class="stat"><b>'+esc(sum.local_matched!=null?sum.local_matched:0)+'</b><span>Lokal Treffer</span></div>';
+  html+='<div class="stat"><b>'+esc(dry?'Vorschau':'Echt')+'</b><span>Modus</span></div>';
+  html+='</div>';
+  if(sum.accounts&&sum.accounts.length){
+    html+='<h2 style="margin-top:.65rem">Konten</h2>';
+    sum.accounts.forEach(function(a){
+      html+='<div class="acc-row"><b>'+esc(a.account)+'</b> · gelöscht '+esc(a.remote_deleted||0)+' · Kandidaten '+esc(a.candidates||a.matched||0);
+      if(a.folders&&a.folders.length){
+        html+='<div class="meta">'+a.folders.map(function(f){return esc(f.folder)+': '+esc(f.count);}).join(' · ')+'</div>';
+      }
+      if(a.scanned_folders&&a.scanned_folders.length){
+        html+='<div class="meta">gescannt: '+a.scanned_folders.map(esc).join(', ')+'</div>';
+      }
+      if(a.errors&&a.errors.length){
+        html+='<div class="meta err">Fehler: '+a.errors.map(esc).join('; ')+'</div>';
+      }
+      html+='</div>';
+    });
+  }
+  if(sum.rules&&sum.rules.length){
+    html+='<h2 style="margin-top:.65rem">Regeln</h2>';
+    sum.rules.forEach(function(rr){
+      html+='<div class="acc-row">'+esc(rr.name)
+        +' · lokal '+esc(rr.matched||rr.deleted_local||0)
+        +' · remote '+esc(rr.remote_matched||0)
+        +(rr.remote_deleted!=null?(' / gelöscht '+esc(rr.remote_deleted)):'')
+        +'</div>';
+    });
+  }
+  return html;
+}
+
 function renderLastRun(r){
-var box=document.getElementById('rules-last-run');var body=document.getElementById('rules-last-run-body');
-if(!box||!body)return;
-var st=(r&&r.apply_status)||{};
-var lr=r&&r.last_result; var last=r&&r.last_run;
-var running=!!(st.running);
-var html='';
-if(running){
-html+='<div class="acc-row" style="border-color:var(--warn)"><b>Läuft gerade</b> · '+esc(st.phase||'')+' · '+esc(st.message||'')+(st.progress!=null?(' · '+st.progress+'%'):'')+(st.current_rule?(' · Regel: '+esc(st.current_rule)):'')+(st.remote_folder?(' · Ordner: '+esc(st.remote_folder)):'')+'</div>';
+  var body=document.getElementById('rules-last-run-body');
+  var ov=document.getElementById('overview-rules-run');
+  var pill=document.getElementById('rules-run-pill');
+  if(!body) return;
+  var st=(r&&r.apply_status)||{};
+  var lr=r&&r.last_result;
+  var last=r&&r.last_run;
+  var running=!!st.running;
+  var html='';
+  if(running){
+    html+='<div class="acc-row" style="border-color:var(--warn)"><b>Läuft</b> · '
+      +esc(st.phase||'')+' · '+esc(st.message||'')
+      +(st.progress!=null?(' · '+st.progress+'%'):'')
+      +(st.current_rule?(' · '+esc(st.current_rule)):'')
+      +(st.remote_folder?(' · '+esc(st.remote_folder)):'')
+      +'</div>';
+    if(pill){pill.textContent='läuft';pill.className='badge warn';}
+  } else if(pill){
+    pill.textContent=last?'fertig':'—';
+    pill.className='badge'+(last?' ok':'');
+  }
+  var sum=(st.result&&st.result.summary)||(lr&&lr.summary)||lr||null;
+  if(sum||last||running){
+    html+=fmtRunSummary(sum||{}, lr, last, st);
+  } else {
+    html+='<div class="meta">Noch kein Lauf protokolliert.</div>';
+  }
+  body.innerHTML=html;
+  if(ov) ov.innerHTML=html;
 }
-if(last||lr||st.result){
-var sum=(st.result&&st.result.summary)||(lr&&lr.summary)||lr||{};
-html+='<div class="grid" style="margin-top:.5rem">';
-html+='<div class="stat"><b>'+esc(last||st.ts||'—')+'</b><span>Letzter Lauf (UTC)</span></div>';
-html+='<div class="stat"><b>'+esc(sum.local_deleted!=null?sum.local_deleted:(lr&&lr.deleted)||0)+'</b><span>Lokal gelöscht</span></div>';
-html+='<div class="stat"><b>'+esc(sum.remote_deleted!=null?sum.remote_deleted:0)+'</b><span>Remote gelöscht</span></div>';
-html+='<div class="stat"><b>'+esc(sum.remote_candidates!=null?sum.remote_candidates:0)+'</b><span>Remote Kandidaten</span></div>';
-html+='<div class="stat"><b>'+esc(sum.local_matched!=null?sum.local_matched:0)+'</b><span>Lokal Treffer</span></div>';
-html+='<div class="stat"><b>'+esc((sum.dry_run||(lr&&lr.dry_run))?'Vorschau':'Echt')+'</b><span>Modus</span></div>';
-html+='</div>';
-if(sum.accounts&&sum.accounts.length){
-html+='<h2 style="margin-top:.75rem;font-size:.95rem">Konten</h2>';
-sum.accounts.forEach(function(a){
-html+='<div class="acc-row"><b>'+esc(a.account)+'</b> · gelöscht: '+esc(a.remote_deleted||0)+' · Kandidaten: '+esc(a.candidates||a.matched||0);
-if(a.folders&&a.folders.length){html+='<div class="meta">'+a.folders.map(function(f){return esc(f.folder)+': '+esc(f.count);}).join(' · ')+'</div>';}
-if(a.scanned_folders&&a.scanned_folders.length){html+='<div class="meta">gescannt: '+a.scanned_folders.map(esc).join(', ')+'</div>';}
-if(a.errors&&a.errors.length){html+='<div class="meta" style="color:var(--danger)">Fehler: '+a.errors.map(esc).join('; ')+'</div>';}
-html+='</div>';
-});
+
+function renderSummary(r){
+  var el=document.getElementById('rules-summary');
+  if(!el) return;
+  var s=r.summary||{};
+  if(r.ok===false&&r.message&&!s.rules){
+    el.innerHTML='<div class="acc-row" style="border-color:var(--danger)"><b>Hinweis</b>: '+esc(r.message)+'</div>';
+    return;
+  }
+  el.innerHTML=fmtRunSummary(s, r, r.last_run, null);
+  var out=document.getElementById('rules-out');
+  if(out){out.style.display='block';out.textContent=JSON.stringify(r,null,2);}
 }
-if(sum.rules&&sum.rules.length){
-html+='<h2 style="margin-top:.75rem;font-size:.95rem">Regeln im Lauf</h2>';
-sum.rules.forEach(function(rr){
-html+='<div class="acc-row">'+esc(rr.name)+' · lokal: '+esc(rr.matched||rr.deleted_local||0)+' · remote: '+esc(rr.remote_matched||0)+(rr.remote_deleted!=null?(' / gelöscht '+rr.remote_deleted):'')+'</div>';
-});
+
+function pollApply(deadline){
+  deadline=deadline||(Date.now()+30*60*1000);
+  return api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply_status'})})
+  .then(function(r){
+    var st=(r&&r.status)||{};
+    var msg=st.message||(st.running?'Läuft…':'');
+    if(st.current_rule) msg=(msg?msg+' · ':'')+st.current_rule;
+    if(st.remote_folder) msg+=' · '+st.remote_folder;
+    if(st.progress!=null) msg+=' ('+st.progress+'%)';
+    setBusy(!!st.running, msg||'Bereit');
+    if(st.summary) renderSummary({ok:true,dry_run:!!st.dry_run,summary:st.summary,deleted:(st.summary.local_deleted||0)});
+    if(st.result) renderSummary(st.result);
+    renderLastRun({apply_status:st,last_run:st.ts,last_result:st.result});
+    if(st.running&&Date.now()<deadline){
+      return new Promise(function(res){setTimeout(function(){res(pollApply(deadline));},1500);});
+    }
+    setBusy(false, st.phase==='error'?(st.message||'Fehler'):(st.phase==='done'?'Fertig':'Bereit'));
+    if(st.result) renderSummary(st.result);
+    loadRules();
+    return r;
+  });
 }
-} else {
-html+='<div class="meta">Noch kein Lauf protokolliert.</div>';
+
+function loadRules(){
+  return api('/api/rules').then(function(r){
+    var iv=document.getElementById('rules-interval');
+    if(iv&&r&&r.interval_minutes!=null) iv.value=r.interval_minutes;
+    var en=document.getElementById('rules-enabled');
+    if(en&&r) en.value=String(r.enabled!==false);
+    var info=document.getElementById('rules-schedule-info');
+    if(info) info.textContent=(r&&r.enabled!==false)?('alle '+(r.interval_minutes||30)+' Min.'):'Automatik aus';
+    renderLastRun(r||{});
+    var list=document.getElementById('rules-list');
+    var rules=(r&&r.rules)||[];
+    if(!rules.length){list.innerHTML='<div class="meta">Keine Regeln</div>';return;}
+    list.innerHTML=rules.map(function(x){
+      var m=x.match||{};
+      return '<div class="rule"><b>'+esc(x.name||x.id)+'</b> '
+        +'<span class="badge'+(x.enabled===false?'':' ok')+'">'+(x.enabled===false?'aus':'an')+'</span>'
+        +(x.delete_remote!==false?'<span class="badge">remote</span>':'')
+        +'<div class="meta">'+esc(m.from_value||'')+(m.min_age_days?(' · ab '+m.min_age_days+' Tagen'):'')+'</div>'
+        +'<div class="row" style="margin-top:.35rem">'
+        +'<button class="btn ghost btn-edit" data-id="'+esc(x.id)+'">Bearbeiten</button>'
+        +'<button class="btn danger btn-del" data-id="'+esc(x.id)+'">Löschen</button>'
+        +'</div></div>';
+    }).join('');
+    list.querySelectorAll('.btn-del').forEach(function(b){
+      b.onclick=function(){
+        if(!confirm('Regel löschen?')) return;
+        api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:b.dataset.id})}).then(loadRules);
+      };
+    });
+    list.querySelectorAll('.btn-edit').forEach(function(b){
+      b.onclick=function(){
+        var rule=rules.find(function(z){return z.id===b.dataset.id;});
+        if(!rule) return;
+        var m=rule.match||{};
+        document.getElementById('r-name').value=rule.name||'';
+        document.getElementById('r-from').value=m.from_value||'';
+        document.getElementById('r-subj').value=m.subject_contains||'';
+        document.getElementById('r-age').value=m.min_age_days||'';
+        document.getElementById('r-remote').checked=rule.delete_remote!==false;
+        document.getElementById('r-save').dataset.id=rule.id;
+        var c=document.getElementById('r-cancel'); if(c) c.style.display='';
+      };
+    });
+  });
 }
-body.innerHTML=html; box.style.display='';
+
+function refreshStatus(){
+  return api('/api/status').then(function(r){
+    var st=r.status||{};
+    var g=document.getElementById('status-grid');
+    g.innerHTML=
+      '<div class="stat"><b>'+(r.clamd_alive?'online':'offline')+'</b><span>ClamAV</span></div>'+
+      '<div class="stat"><b>'+esc(st.infected_moved!=null?st.infected_moved:(st.infected||0))+'</b><span>Fundstellen</span></div>'+
+      '<div class="stat"><b>'+esc(st.scanned_paths!=null?st.scanned_paths:(st.scanned||'—'))+'</b><span>Gescannt</span></div>'+
+      '<div class="stat"><b>'+esc((st.last_scan||'—').toString().slice(0,19))+'</b><span>Letzter Scan</span></div>';
+    var pill=document.getElementById('status-pill');
+    pill.textContent=r.clamd_alive?'ClamAV ok':'ClamAV?';
+    pill.className='badge'+(r.clamd_alive?' ok':' warn');
+    document.getElementById('scan-progress').textContent=
+      st.scanning?(st.current_path?('Scan: '+st.current_path):(st.message||'Scan läuft…')):(st.message||'');
+    var ev=document.getElementById('events-list');
+    var events=(r.events)||[];
+    ev.innerHTML=events.slice(0,50).map(function(e){
+      return '<div class="acc-row"><span class="meta">'+esc(e.ts||'')+'</span> · <b>'+esc(e.kind||'')+'</b> · '+esc(typeof e.detail==='string'?e.detail:JSON.stringify(e.detail||''))+'</div>';
+    }).join('')||'<div class="meta">Keine Ereignisse</div>';
+    document.getElementById('log-out').textContent=r.log||'—';
+  }).catch(function(e){
+    document.getElementById('status-grid').innerHTML='<div class="meta err">'+esc(String(e))+'</div>';
+  });
 }
-function loadRules(){api('/api/rules').then(function(r){
-var iv=document.getElementById('rules-interval'); if(iv&&r&&r.interval_minutes!=null) iv.value=r.interval_minutes;
-var en=document.getElementById('rules-enabled'); if(en&&r) en.value=String(r.enabled!==false);
-var info=document.getElementById('rules-schedule-info');
-if(info){info.textContent=(r&&r.enabled!==false)?('alle '+(r.interval_minutes||30)+' Min.'):'Automatik aus';}
-renderLastRun(r||{});
-var list=document.getElementById('rules-list');var rules=(r&&r.rules)||[];
-if(!rules.length){list.innerHTML='<div class="meta">Keine Regeln</div>';return;}
-list.innerHTML=rules.map(function(x){var m=x.match||{};return '<div class="rule"><b>'+esc(x.name||x.id)+'</b> <span class="badge'+(x.enabled===false?'':' ok')+'">'+(x.enabled===false?'aus':'an')+'</span>'+(x.delete_remote!==false?'<span class="badge">remote</span>':'')+'<div class="meta">'+esc(m.from_value||'')+(m.min_age_days?(' · ab '+m.min_age_days+' Tagen'):'')+'</div><div class="row" style="margin-top:.4rem"><button class="btn ghost btn-edit" data-id="'+esc(x.id)+'">Bearbeiten</button><button class="btn danger btn-del" data-id="'+esc(x.id)+'">Löschen</button></div></div>';}).join('');
-list.querySelectorAll('.btn-del').forEach(function(b){b.onclick=function(){if(!confirm('Regel löschen?'))return;api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:b.dataset.id})}).then(loadRules);};});
-list.querySelectorAll('.btn-edit').forEach(function(b){b.onclick=function(){var rule=rules.find(function(z){return z.id===b.dataset.id;});if(!rule)return;var m=rule.match||{};document.getElementById('r-name').value=rule.name||'';document.getElementById('r-from').value=m.from_value||'';document.getElementById('r-subj').value=m.subject_contains||'';document.getElementById('r-age').value=m.min_age_days||'';document.getElementById('r-remote').checked=rule.delete_remote!==false;document.getElementById('r-save').dataset.id=rule.id;};});
-});}
-function refreshStatus(){api('/api/status').then(function(r){var st=r.status||{};var g=document.getElementById('status-grid');g.innerHTML='<div class="stat"><b>'+(r.clamd_alive?'online':'offline')+'</b><span>ClamAV</span></div><div class="stat"><b>'+esc(st.findings!=null?st.findings:(st.infected||0))+'</b><span>Fundstellen</span></div><div class="stat"><b>'+esc(st.scanned||st.scanned_files||'—')+'</b><span>Gescannt</span></div><div class="stat"><b>'+esc((st.message||'—').toString().slice(0,40))+'</b><span>Status</span></div>';document.getElementById('status-pill').textContent=r.clamd_alive?'ClamAV ok':'ClamAV?';document.getElementById('scan-progress').textContent=st.current_path?('Scan: '+st.current_path): (st.message||'');var ev=document.getElementById('events-list');ev.innerHTML=((r.events)||[]).slice(0,40).map(function(e){return '<div class="acc-row"><span class="meta">'+esc(e.ts||'')+'</span> · <b>'+esc(e.kind||'')+'</b> · '+esc(e.detail||'')+'</div>';}).join('')||'<div class="meta">Keine Ereignisse</div>';document.getElementById('log-out').textContent=r.log||'—';});}
-document.getElementById('btn-scan').onclick=function(){api('/api/scan',{method:'POST'}).then(refreshStatus);};
-document.getElementById('btn-update').onclick=function(){api('/api/update',{method:'POST'}).then(refreshStatus);};
-document.getElementById('rules-save-settings').onclick=function(){
-var iv=parseInt(document.getElementById('rules-interval').value,10)||30;
-var en=document.getElementById('rules-enabled').value==='true';
-api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'settings',enabled:en,interval_minutes:iv})}).then(function(r){
-setBusy(false,r&&r.ok?'Zeitplan gespeichert':'Fehler');
-loadRules();
-}).catch(function(e){setBusy(false,String(e));});
+
+document.getElementById('btn-scan').onclick=function(){
+  api('/api/scan',{method:'POST'}).then(refreshStatus);
 };
-document.getElementById('rules-apply-dry').onclick=function(){setBusy(true,'Vorschau läuft…');document.getElementById('rules-summary').innerHTML='';api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);if(r.started||r.apply_running)return pollApply();if(r.summary)renderSummary(r);setBusy(false,r.ok?'Vorschau fertig':(r.message||'Fehler'));}).catch(function(e){document.getElementById('rules-out').textContent=String(e);setBusy(false,'Fehler');});};
-document.getElementById('rules-apply').onclick=function(){if(!confirm('Passende Mails jetzt lokal UND remote (IMAP) löschen?'))return;setBusy(true,'Löschen gestartet…');document.getElementById('rules-summary').innerHTML='';api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})}).then(function(r){document.getElementById('rules-out').textContent=JSON.stringify(r,null,2);if(r.started||r.apply_running)return pollApply();if(r.summary)renderSummary(r);setBusy(false,r.ok?'Fertig':(r.message||'Fehler'));loadRules();}).catch(function(e){document.getElementById('rules-out').textContent=String(e);setBusy(false,'Fehler');});};
+document.getElementById('btn-update').onclick=function(){
+  api('/api/update',{method:'POST'}).then(refreshStatus);
+};
+document.getElementById('rules-save-settings').onclick=function(){
+  var iv=parseInt(document.getElementById('rules-interval').value,10)||30;
+  var en=document.getElementById('rules-enabled').value==='true';
+  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'settings',enabled:en,interval_minutes:iv})})
+    .then(function(r){setBusy(false,r&&r.ok?'Zeitplan gespeichert':'Fehler');loadRules();})
+    .catch(function(e){setBusy(false,String(e));});
+};
+document.getElementById('rules-apply-dry').onclick=function(){
+  setBusy(true,'Vorschau läuft…');
+  document.getElementById('rules-summary').innerHTML='';
+  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:true})})
+    .then(function(r){
+      if(r.started||r.apply_running) return pollApply();
+      if(r.summary) renderSummary(r);
+      setBusy(false,r.ok?'Vorschau fertig':(r.message||'Fehler'));
+      loadRules();
+    }).catch(function(e){setBusy(false,String(e));});
+};
+document.getElementById('rules-apply').onclick=function(){
+  if(!confirm('Passende Mails jetzt lokal UND remote (IMAP) löschen?')) return;
+  setBusy(true,'Löschen gestartet…');
+  document.getElementById('rules-summary').innerHTML='';
+  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'apply',dry_run:false})})
+    .then(function(r){
+      if(r.started||r.apply_running) return pollApply();
+      if(r.summary) renderSummary(r);
+      setBusy(false,r.ok?'Fertig':(r.message||'Fehler'));
+      loadRules();
+    }).catch(function(e){setBusy(false,String(e));});
+};
 document.getElementById('rules-reload').onclick=function(){loadRules();};
-document.getElementById('r-save').onclick=function(){var id=this.dataset.id||'';api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'upsert',id:id,name:document.getElementById('r-name').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:document.getElementById('r-age').value||null,delete_remote:document.getElementById('r-remote').checked})}).then(function(){document.getElementById('r-save').dataset.id='';loadRules();});};
+document.getElementById('r-save').onclick=function(){
+  var id=this.dataset.id||'';
+  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    action:'upsert',id:id,
+    name:document.getElementById('r-name').value,
+    from_value:document.getElementById('r-from').value,
+    subject_contains:document.getElementById('r-subj').value,
+    min_age_days:document.getElementById('r-age').value||null,
+    delete_remote:document.getElementById('r-remote').checked
+  })}).then(function(){
+    document.getElementById('r-save').dataset.id='';
+    var c=document.getElementById('r-cancel'); if(c) c.style.display='none';
+    document.getElementById('r-name').value='';
+    document.getElementById('r-from').value='';
+    document.getElementById('r-subj').value='';
+    document.getElementById('r-age').value='';
+    loadRules();
+  });
+};
+var cancelBtn=document.getElementById('r-cancel');
+if(cancelBtn) cancelBtn.onclick=function(){
+  document.getElementById('r-save').dataset.id='';
+  this.style.display='none';
+  document.getElementById('r-name').value='';
+  document.getElementById('r-from').value='';
+  document.getElementById('r-subj').value='';
+  document.getElementById('r-age').value='';
+};
+
 refreshStatus();
-</script></body></html>
+api('/api/rules').then(function(r){renderLastRun(r||{});}).catch(function(){});
+})();
+</script>
+</body>
+</html>
