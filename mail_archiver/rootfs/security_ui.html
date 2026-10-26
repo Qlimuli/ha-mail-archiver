@@ -42,12 +42,19 @@ pre{background:#0a101c;border:1px solid var(--border);border-radius:10px;padding
 .muted{color:var(--muted)}
 .err{color:var(--danger)}
 .okc{color:var(--ok)}
-@media (max-width:640px){.wrap{padding:.65rem}.stat b{font-size:1.05rem}.btn{min-height:40px}}
+.header{display:flex;align-items:center;gap:.65rem;margin-bottom:.75rem;flex-wrap:wrap}
+.header h1{margin:0;flex:1}
+.btn-back{display:inline-flex;align-items:center;gap:.35rem;background:transparent;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:.4rem .75rem;cursor:pointer;font-size:.9rem;text-decoration:none;min-height:36px}
+.btn-back:hover{background:var(--card);border-color:var(--accent)}
+@media (max-width:640px){.wrap{padding:.65rem}.stat b{font-size:1.05rem}.btn,.btn-back{min-height:40px}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Sicherheit</h1>
+  <div class="header">
+    <a class="btn-back" id="btn-back" href="../">← Zurück</a>
+    <h1>Sicherheit</h1>
+  </div>
   <div class="tabs">
     <button class="tab active" data-tab="overview">Übersicht</button>
     <button class="tab" data-tab="rules">Mailregeln</button>
@@ -153,6 +160,14 @@ function base(){
   return i>=0?p.slice(0,i+9):'/security';
 }
 var B=base();
+(function(){
+  var back=document.getElementById('btn-back');
+  if(back){
+    var p=location.pathname.replace(/\/+$/,'');
+    var i=p.lastIndexOf('/security');
+    back.href=(i>=0?p.slice(0,i):'')+'/' || '../';
+  }
+})();
 
 function api(path,opts){
   return fetch(B+path,opts||{}).then(function(r){
@@ -162,7 +177,7 @@ function api(path,opts){
     });
   });
 }
-function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&','<':'<','>':'>','"':'"',"'":'&#39;'})[c];});}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];});}
 function showTab(id){
   ['overview','rules','events','log'].forEach(function(t){
     var el=document.getElementById('tab-'+t);
@@ -401,14 +416,8 @@ document.getElementById('rules-apply').onclick=function(){
 document.getElementById('rules-reload').onclick=function(){loadRules();};
 document.getElementById('r-save').onclick=function(){
   var id=this.dataset.id||'';
-  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    action:'upsert',id:id,
-    name:document.getElementById('r-name').value,
-    from_value:document.getElementById('r-from').value,
-    subject_contains:document.getElementById('r-subj').value,
-    min_age_days:document.getElementById('r-age').value||null,
-    delete_remote:document.getElementById('r-remote').checked
-  })}).then(function(){
+  var body={action:id?'update':'create',id:id||undefined,name:document.getElementById('r-name').value,from_value:document.getElementById('r-from').value,subject_contains:document.getElementById('r-subj').value,min_age_days:document.getElementById('r-age').value?parseInt(document.getElementById('r-age').value,10):null,delete_remote:document.getElementById('r-remote').checked};
+  api('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(){
     document.getElementById('r-save').dataset.id='';
     var c=document.getElementById('r-cancel'); if(c) c.style.display='none';
     document.getElementById('r-name').value='';
