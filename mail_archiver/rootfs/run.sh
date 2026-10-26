@@ -125,6 +125,11 @@ export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
 export ASPNETCORE_ENVIRONMENT=Production
 export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+# Persist ASP.NET Data Protection keys across restarts (session cookies)
+export DOTNET_DataProtection__KeyDirectory=/data/keys
+export DataProtection__KeyPath=/data/keys
+mkdir -p /data/keys
+chmod 700 /data/keys 2>/dev/null || true
 export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=0
 export DB_SCAN_BODIES="${DB_SCAN_BODIES:-false}"
 export DB_SCAN_MAX_PER_RUN="${DB_SCAN_MAX_PER_RUN:-800}"
