@@ -1,20 +1,26 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.28**
+Version **1.3.29**
 
-## 1.3.28 – CPU/RAM optimiert
+## 1.3.29 – Security-Regeln: Intervall + Lauf-Übersicht
 
-* DB-Virenscan **inkrementell** (nur neue Anhänge), max. 800 pro Lauf
-* E-Mail-Bodies standardmäßig **nicht** gescannt
-* ClamAV: MaxThreads=2, Größenlimits, `nice`/`ionice`
-* Scan-Intervall Default **360 Min**, Scan-on-Start **aus**
-* Security-UI Polling 30s, schlankeres Status-JSON
-* Dashboard-Stats alle 15 Min
+* Mailregeln: Intervall (Minuten) und Automatik an/aus in der Security-UI einstellbar
+* Klarere Anzeige von letztem und aktuellem Lauf (lokal/remote, Konten, Regeln)
+* Hintergrund-Loop unverändert nutzbar; Einstellungen werden persistent gespeichert
 
-## 1.3.27 – Security 502
 
-`mail_rules_part*.b64` im Image.
+Version **1.3.20**
 
-## 1.3.26 – Remote-Ordner
+## 1.3.20 – Übersicht nach „Jetzt löschen“
 
-IMAP-LIST robuster.
+Nach Vorschau / Löschen siehst du:
+
+* Lokal gelöscht / Treffer
+* Remote-Kandidaten
+* Remote gelöscht
+* Remote nicht gefunden
+* Pro Konto: gelöscht, Fehler, durchsuchte Ordner
+
+## About
+
+home-mail-bridge.vercel.app
