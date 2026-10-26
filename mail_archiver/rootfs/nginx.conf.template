@@ -22,9 +22,18 @@ http {
         ""      "";
     }
 
-    # Short tag only – full logic in /ha-ui-inject.js (avoids nginx "too long parameter")
+    map $host $fwd_proto {
+        ~*\.ts\.net$   https;
+        ~*tailscale    https;
+        default        $http_x_forwarded_proto;
+    }
+    map $fwd_proto $real_proto {
+        default $fwd_proto;
+        ""      $scheme;
+    }
+
     map $host $ha_sec_inject {
-        default '<script src="ha-ui-inject.js?v=136" defer></script>';
+        default '<script src="ha-ui-inject.js?v=140" defer></script>';
     }
 
     server {
@@ -48,7 +57,8 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $real_proto;
+            proxy_set_header X-Forwarded-Host $host;
             proxy_set_header X-Ingress-Path $http_x_ingress_path;
             proxy_read_timeout 120s;
         }
@@ -62,7 +72,8 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $real_proto;
+            proxy_set_header X-Forwarded-Host $host;
             proxy_read_timeout 120s;
         }
 
@@ -72,7 +83,7 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $real_proto;
             proxy_set_header X-Forwarded-Host $host;
             proxy_set_header X-Ingress-Path $http_x_ingress_path;
             proxy_set_header Accept-Encoding "";
@@ -84,9 +95,12 @@ http {
             proxy_send_timeout 3600s;
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
+            proxy_redirect https://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
+            proxy_redirect ~^https?://[^/]+/(?<rpath>.*)$ $ingress_prefix/$rpath;
             proxy_cookie_path / $ingress_prefix/;
+            proxy_cookie_flags ~ nosecure samesite=lax;
             sub_filter_once off;
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
@@ -115,7 +129,7 @@ http {
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Proto $real_proto;
             proxy_set_header X-Forwarded-Host $host;
             proxy_set_header X-Forwarded-Prefix $ingress_prefix;
             proxy_set_header X-Ingress-Path $http_x_ingress_path;
@@ -128,9 +142,12 @@ http {
             proxy_send_timeout 3600s;
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
+            proxy_redirect https://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
+            proxy_redirect ~^https?://[^/]+/(?<rpath>.*)$ $ingress_prefix/$rpath;
             proxy_cookie_path / $ingress_prefix/;
+            proxy_cookie_flags ~ nosecure samesite=lax;
             sub_filter_once off;
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
