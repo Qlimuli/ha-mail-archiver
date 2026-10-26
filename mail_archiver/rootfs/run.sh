@@ -118,6 +118,7 @@ export Authentication__Password="${ADMIN_PASS}"
 export Authentication__SessionTimeoutMinutes=120
 export Authentication__CookieName=MailArchiverAuth
 export Authentication__CookieSameSite=Lax
+export Authentication__CookieSecure=true
 export Dashboard__RefreshIntervalMinutes=15
 export Dashboard__CacheSeconds=60
 export TimeZone__DisplayTimeZoneId="${TIMEZONE}"
@@ -125,7 +126,7 @@ export AllowedHosts="*"
 export ASPNETCORE_URLS="http://127.0.0.1:5001"
 export ASPNETCORE_ENVIRONMENT=Production
 export ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
-# Persist ASP.NET Data Protection keys across restarts (session cookies)
+export ASPNETCORE_PATHBASE=""
 export DOTNET_DataProtection__KeyDirectory=/data/keys
 export DataProtection__KeyPath=/data/keys
 mkdir -p /data/keys
@@ -147,7 +148,6 @@ log "Temp-Bereinigung fertig"
 ln -sfn /data/import /app/imports 2>/dev/null || true
 ln -sfn /data/import /app/uploads/eml 2>/dev/null || true
 
-# Security: NIE den Boot blockieren
 if [ -f /security.sh ]; then
   log "Starte Sicherheitsmodul im Hintergrund…"
   (
