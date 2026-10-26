@@ -38,6 +38,7 @@ COPY rootfs/run.sh /run.sh
 COPY rootfs/security.sh /security.sh
 COPY rootfs/security_ui.py /security_ui.py
 COPY rootfs/security_ui_app.py /security_ui_app.py
+COPY rootfs/security_ui.html /security_ui.html
 COPY rootfs/mail_rules.py /mail_rules.py
 COPY rootfs/mail_rules_part00.b64 /mail_rules_part00.b64
 COPY rootfs/mail_rules_part01.b64 /mail_rules_part01.b64
