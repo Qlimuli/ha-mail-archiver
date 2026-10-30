@@ -8,7 +8,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 try:
     import mail_rules
-except ImportError:
+except Exception as _mail_rules_err:
+    print("[security-ui] mail_rules nicht geladen: %s" % _mail_rules_err, flush=True)
     mail_rules = None
 
 HOST = "127.0.0.1"
@@ -225,7 +226,7 @@ def main():
         try: mail_rules.start_background_loop()
         except Exception: pass
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
-    print("[security-ui] listening on http://%s:%s/security/" % (HOST, PORT))
+    print("[security-ui] listening on http://%s:%s/security/" % (HOST, PORT), flush=True)
     httpd.serve_forever()
 
 if __name__ == "__main__":
