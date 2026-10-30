@@ -18,9 +18,7 @@ def _load():
             "Rebuild the add-on image so Dockerfile COPY includes the part files."
         )
     b64 = "".join(p.read_text(encoding="ascii").strip() for p in candidates)
-    # tolerate whitespace / newlines
     b64 = "".join(b64.split())
-    # pad base64 if needed
     pad = (-len(b64)) % 4
     if pad:
         b64 += "=" * pad
@@ -30,7 +28,6 @@ def _load():
 try:
     _load()
 except Exception as e:
-    # Do not crash security_ui – expose stubs so /security/ still serves
     print("[mail_rules] load failed: %s" % e, file=sys.stderr, flush=True)
     def list_rules():
         return {"ok": False, "message": "mail_rules nicht geladen: %s" % e, "rules": [], "enabled": False}
