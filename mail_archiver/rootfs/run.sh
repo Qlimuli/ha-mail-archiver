@@ -36,6 +36,9 @@ start_embedded_postgres() {
     exit 1
   fi
 
+  # HA data volume is often 700/root – postgres must be able to traverse /data
+  chmod 755 /data 2>/dev/null || true
+
   if [ ! -f "${pgdata}/PG_VERSION" ]; then
     log "Initialisiere PostgreSQL in $pgdata"
     mkdir -p "$pgdata"
@@ -50,18 +53,41 @@ start_embedded_postgres() {
     } >> "${pgdata}/postgresql.conf"
   fi
 
-  chown -R postgres:postgres "$pgdata"
-  chmod 700 "$pgdata"
+  # Ensure ownership + strict perms (pg_ctl rejects anything but 0700/0750)
+  chown -R postgres:postgres "$pgdata" 2>/dev/null || true
+  find "$pgdata" -type d -exec chmod 700 {} + 2>/dev/null || chmod -R 700 "$pgdata" 2>/dev/null || true
+  find "$pgdata" -type f -exec chmod 600 {} + 2>/dev/null || true
+  chmod 700 "$pgdata" 2>/dev/null || true
 
   local pglog="${pgdata}/postgres.log"
   touch "$pglog" 2>/dev/null || true
   chown postgres:postgres "$pglog" 2>/dev/null || true
+  chmod 600 "$pglog" 2>/dev/null || true
 
   if ! su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} status" >/dev/null 2>&1; then
     log "Starte PostgreSQL"
     su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -m fast stop" >/dev/null 2>&1 || true
     sleep 1
-    su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l ${pglog} -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"
+    # Retry once after re-applying permissions (common on HAOS volume remounts)
+    if ! su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l ${pglog} -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"; then
+      log "WARN: pg_ctl start fehlgeschlagen – setze Rechte erneut und versuche nochmal"
+      chmod 755 /data 2>/dev/null || true
+      chown -R postgres:postgres "$pgdata" 2>/dev/null || true
+      find "$pgdata" -type d -exec chmod 700 {} + 2>/dev/null || true
+      find "$pgdata" -type f -exec chmod 600 {} + 2>/dev/null || true
+      chmod 700 "$pgdata" 2>/dev/null || true
+      chown postgres:postgres "$pglog" 2>/dev/null || true
+      sleep 1
+      if ! su -s /bin/bash postgres -c "${PG_BIN}/pg_ctl -D ${pgdata} -l ${pglog} -w -o '-k /tmp -c listen_addresses=127.0.0.1' start"; then
+        log "ERROR: PostgreSQL startete nicht (Permission/Start)"
+        log "Debug: ls -la /data und /data/pg:"
+        ls -la /data 2>/dev/null || true
+        ls -la "$pgdata" 2>/dev/null || true
+        id postgres 2>/dev/null || true
+        tail -50 "$pglog" 2>/dev/null || true
+        exit 1
+      fi
+    fi
   fi
 
   local i
