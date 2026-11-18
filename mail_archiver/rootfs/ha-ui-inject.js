@@ -1,4 +1,4 @@
-/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Ingress + Mobile */
+/*! ha-mail-archiver UI inject: Navbar + Chunk-Upload + Ingress + Mobile v141 */
 (function () {
   var CHUNK_SIZE = 4 * 1024 * 1024;
   var LARGE_THRESHOLD = 8 * 1024 * 1024;
@@ -6,13 +6,23 @@
 
   function ingressPrefix() {
     try {
-      var m = (location.pathname || "").match(/(\/api\/hassio_ingress\/[^/]+)/);
+      var path = location.pathname || "";
+      // Standard Supervisor ingress token path
+      var m = path.match(/(\/api\/hassio_ingress\/[^/]+)/);
+      if (m) return m[1];
+      // Some HA frontends expose a short slug panel path in the address bar
+      m = path.match(/^(\/[0-9a-f]{8}_[\w-]+)/i);
+      if (m) return m[1];
+      m = path.match(/^(\/hassio\/ingress\/[^/]+)/);
       if (m) return m[1];
       var b = document.querySelector("base");
-      if (b && b.href) {
-        var u = new URL(b.href, location.origin);
+      if (b && b.getAttribute("href")) {
+        var u = new URL(b.getAttribute("href"), location.origin);
         var mm = u.pathname.match(/(\/api\/hassio_ingress\/[^/]+)/);
         if (mm) return mm[1];
+        if (u.pathname && u.pathname !== "/" && u.pathname.length > 1) {
+          return u.pathname.replace(/\/$/, "");
+        }
       }
     } catch (e) {}
     return "";
@@ -21,6 +31,7 @@
   function withPrefix(path) {
     var p = ingressPrefix();
     if (!p) return path;
+    if (!path) return p + "/";
     if (path.indexOf(p) === 0) return path;
     if (path.charAt(0) !== "/") path = "/" + path;
     return p + path;
@@ -96,7 +107,33 @@
           a.setAttribute("href", p + h);
         }
       });
+      document.querySelectorAll("form[action^='/']").forEach(function (f) {
+        var act = f.getAttribute("action");
+        if (act && act.indexOf(p) !== 0) f.setAttribute("action", p + act);
+      });
     } catch (e) {}
+  }
+
+  // Patch fetch so relative API calls stay under the ingress prefix.
+  function patchFetch() {
+    if (window.__haMailFetchPatched) return;
+    var p = ingressPrefix();
+    if (!p || !window.fetch) return;
+    window.__haMailFetchPatched = true;
+    var orig = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      try {
+        if (typeof input === "string" && input.charAt(0) === "/" && input.indexOf(p) !== 0) {
+          input = p + input;
+        } else if (input && typeof input.url === "string") {
+          var u = input.url;
+          if (u.charAt(0) === "/" && u.indexOf(p) !== 0) {
+            input = new Request(p + u, input);
+          }
+        }
+      } catch (e) {}
+      return orig(input, init);
+    };
   }
 
   function chunkedUpload(file, form) {
@@ -291,6 +328,7 @@
 
   function startAll() {
     injectMobileCss();
+    patchFetch();
     fixIngressPaths();
     setupDashboardAutoRefresh();
     start(); fixEml();
