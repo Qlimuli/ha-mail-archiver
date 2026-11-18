@@ -1,6 +1,14 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.32**
+Version **1.3.35**
+
+## 1.3.35 – Sidebar Ingress Hang Fix
+
+* nginx: robustere Redirect-Rewrites (`proxy_redirect` inkl. relativer Location-Header)
+* Cookies: Secure-Flag nur bei HTTPS/Tailscale Funnel, sonst `nosecure`
+* `absolute_redirect off` + `X-Forwarded-Prefix` durchgängig gesetzt
+* UI-Inject: erkennt kurze Panel-Pfade und patcht `fetch` + Form-Actions unter Ingress
+* Behebt „lädt sich zu Tode“ in der HA-Sidebar (besonders über Funnel/`*.ts.net`)
 
 ## 1.3.32 – Remote-Löschen robust (GMX + IMAP)
 
