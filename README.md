@@ -1,31 +1,24 @@
 # Home Assistant Add-on: Mail Archiver
 
-Version **1.3.35**
+Version **1.3.36**
+
+## 1.3.36 – nginx Config Fix
+
+* 1.3.35 startete nicht (`nginx -t` fehlgeschlagen)
+* Ursache: `proxy_redirect off` + ungültige `proxy_cookie_flags`-Werte
+* Cookie-Flags wieder gültig (`secure`/`nosecure` + `samesite=lax`)
+* Ingress-Redirects und Sidebar-Fixes aus 1.3.35 bleiben erhalten
 
 ## 1.3.35 – Sidebar Ingress Hang Fix
 
-* nginx: robustere Redirect-Rewrites (`proxy_redirect` inkl. relativer Location-Header)
-* Cookies: Secure-Flag nur bei HTTPS/Tailscale Funnel, sonst `nosecure`
-* `absolute_redirect off` + `X-Forwarded-Prefix` durchgängig gesetzt
-* UI-Inject: erkennt kurze Panel-Pfade und patcht `fetch` + Form-Actions unter Ingress
-* Behebt „lädt sich zu Tode“ in der HA-Sidebar (besonders über Funnel/`*.ts.net`)
+* nginx: robustere Redirect-Rewrites unter HA-Ingress / Tailscale Funnel
+* Cookies: Secure-Flag nur bei HTTPS
+* UI-Inject: kurze Panel-Pfade + `fetch`-Patch
 
 ## 1.3.32 – Remote-Löschen robust (GMX + IMAP)
 
-* IMAP-Suche: mehrere Varianten (CHARSET UTF-8, Klammern, Quotes) – GMX erkennt Treffer zuverlässiger
-* Remote-Löschen: stabileres UID STORE/EXPUNGE inkl. Fallback ohne UIDPLUS
-* Ordner-Select: Umlaute / IMAP UTF-7 (z. B. Gelöscht)
-* Klarere Fehler bei verschlüsseltem oder fehlendem Konto-Passwort
-* Mail-Rules-Events zusätzlich in den Add-on-Logs (`[mail-rules]`)
+* IMAP-Suche / UID STORE / Umlaute / klarere Passwort-Fehler
 
 ## 1.3.30 – Tailscale/Ingress + Security-UI
 
-* nginx: HTTPS-Erkennung für `*.ts.net`, robustere Redirect- und Cookie-Rewrites unter HA-Ingress
-* Session-Cookies: Secure + persistente Keys unter `/data/keys`
-* Security-Dashboard: klarere Übersicht (Virenschutz + letzter Regel-Lauf), übersichtlichere Mailregeln
-
-## 1.3.29 – Security-Regeln: Intervall + Lauf-Übersicht
-
-* Mailregeln: Intervall (Minuten) und Automatik an/aus in der Security-UI einstellbar
-* Klarere Anzeige von letztem und aktuellem Lauf (lokal/remote, Konten, Regeln)
-* Hintergrund-Loop unverändert nutzbar; Einstellungen werden persistent gespeichert
+* nginx HTTPS-Erkennung für `*.ts.net`, Cookie-Rewrites, Security-Dashboard
