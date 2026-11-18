@@ -17,13 +17,11 @@ http {
         ""      close;
     }
 
-    # Prefer Supervisor X-Ingress-Path; fall back to empty (Supervisor already strips prefix).
     map $http_x_ingress_path $ingress_prefix {
         default $http_x_ingress_path;
         ""      "";
     }
 
-    # Detect HTTPS when behind Tailscale Funnel / ts.net or explicit forwarded proto.
     map $host $fwd_proto {
         ~*\.ts\.net$   https;
         ~*tailscale    https;
@@ -34,14 +32,14 @@ http {
         ""      $scheme;
     }
 
-    # Secure cookies only when the client sees HTTPS (Funnel / TLS).
+    # Single flag only – multi-token values break proxy_cookie_flags
     map $real_proto $cookie_secure_flag {
-        https   "secure; samesite=lax";
-        default "nosecure; samesite=lax";
+        https   secure;
+        default nosecure;
     }
 
     map $host $ha_sec_inject {
-        default '<script src="ha-ui-inject.js?v=141" defer></script>';
+        default '<script src="ha-ui-inject.js?v=142" defer></script>';
     }
 
     server {
@@ -75,7 +73,7 @@ http {
             proxy_redirect http://$host/ $ingress_prefix/;
             proxy_redirect https://$host/ $ingress_prefix/;
             proxy_cookie_path / $ingress_prefix/;
-            proxy_cookie_flags ~ $cookie_secure_flag;
+            proxy_cookie_flags ~ $cookie_secure_flag samesite=lax;
         }
         location = /security {
             return 302 $ingress_prefix/security/;
@@ -93,10 +91,9 @@ http {
             proxy_read_timeout 120s;
             proxy_redirect / $ingress_prefix/;
             proxy_cookie_path / $ingress_prefix/;
-            proxy_cookie_flags ~ $cookie_secure_flag;
+            proxy_cookie_flags ~ $cookie_secure_flag samesite=lax;
         }
 
-        # Full Supervisor ingress path (token in URL).
         location ~ ^/api/hassio_ingress/[^/]+(?<rest>/.*)$ {
             proxy_pass http://127.0.0.1:5001$rest$is_args$args;
             proxy_http_version 1.1;
@@ -114,16 +111,14 @@ http {
             proxy_request_buffering off;
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
-            proxy_redirect off;
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
             proxy_redirect https://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
-            proxy_redirect ~^https?://[^/]+/(?<rpath>.*)$ $ingress_prefix/$rpath;
-            proxy_redirect ~^(?<rloc>/.*)$ $ingress_prefix$rloc;
+            proxy_redirect ~^https?://[^/]+/(.*)$ $ingress_prefix/$1;
             proxy_cookie_path / $ingress_prefix/;
-            proxy_cookie_flags ~ $cookie_secure_flag;
+            proxy_cookie_flags ~ $cookie_secure_flag samesite=lax;
             sub_filter_once off;
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
@@ -146,8 +141,6 @@ http {
             sub_filter '</BODY>' '$ha_sec_inject</BODY>';
         }
 
-        # Default: Supervisor already stripped the ingress prefix.
-        # This is the path used by the HA sidebar panel.
         location / {
             proxy_pass http://127.0.0.1:5001;
             proxy_http_version 1.1;
@@ -165,16 +158,14 @@ http {
             proxy_request_buffering off;
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
-            proxy_redirect off;
             proxy_redirect / $ingress_prefix/;
             proxy_redirect http://$host/ $ingress_prefix/;
             proxy_redirect https://$host/ $ingress_prefix/;
             proxy_redirect http://$host:5000/ $ingress_prefix/;
             proxy_redirect http://127.0.0.1:5001/ $ingress_prefix/;
-            proxy_redirect ~^https?://[^/]+/(?<rpath>.*)$ $ingress_prefix/$rpath;
-            proxy_redirect ~^(?<rloc>/.*)$ $ingress_prefix$rloc;
+            proxy_redirect ~^https?://[^/]+/(.*)$ $ingress_prefix/$1;
             proxy_cookie_path / $ingress_prefix/;
-            proxy_cookie_flags ~ $cookie_secure_flag;
+            proxy_cookie_flags ~ $cookie_secure_flag samesite=lax;
             sub_filter_once off;
             sub_filter_types text/html text/css application/javascript application/json;
             sub_filter '<head>' '<head><base href="$ingress_prefix/">';
